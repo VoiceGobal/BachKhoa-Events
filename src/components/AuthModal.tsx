@@ -123,7 +123,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-xs font-semibold uppercase tracking-wider mb-2">
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            Trường Trung Cấp Công Nghiệp Bách Khoa
+            Trường Trung Cấp Công Nghiệp Bách Khoa Sầm Sơn – Thanh Hóa
           </div>
 
           <h3 className="text-2xl font-bold font-serif">

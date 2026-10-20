@@ -6,9 +6,4 @@ coverage/
 *.log
 .env*
 !.env.example
-
-# Dữ liệu cục bộ / khóa bí mật
 data/
-serviceAccount*.json
-*-firebase-adminsdk-*.json
-.vercel

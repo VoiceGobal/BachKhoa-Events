@@ -26,10 +26,10 @@ const SPOTLIGHT_SLIDES: SpotlightSlide[] = [
     id: 'bk-2010-stage',
     image: imgBachKhoa2010,
     title: 'Vinh Danh Nữ Cán Bộ, Giảng Viên & Sinh Viên 20/10',
-    subtitle: 'Lễ kỷ niệm ngày Phụ nữ Việt Nam 20/10 trang trọng và ấm áp tại hội trường Trường Trung cấp Công nghiệp Bách Khoa.',
+    subtitle: 'Lễ kỷ niệm ngày Phụ nữ Việt Nam 20/10 trang trọng và ấm áp tại hội trường Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa.',
     tag: 'Sự Kiện 20/10 Bách Khoa',
     quote: 'Tôn vinh trí tuệ, bản lĩnh và vẻ đẹp duyên dáng của người phụ nữ trong giáo dục nghề nghiệp và công nghệ hiện đại.',
-    author: 'Trường Trung cấp Công nghiệp Bách Khoa',
+    author: 'Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa',
   },
   {
     id: 'bk-teachers',
@@ -38,7 +38,7 @@ const SPOTLIGHT_SLIDES: SpotlightSlide[] = [
     subtitle: 'Nét rạng rỡ của quý cô giáo trường Trung cấp Công nghiệp Bách Khoa trong tà áo dài truyền thống.',
     tag: 'Tập Thể Sư Phạm Bách Khoa',
     quote: 'Mỗi bài giảng là một ngọn lửa đam mê, mỗi sự ân cần là một bước đệm nâng bước học trò tự tin lập thân lập nghiệp.',
-    author: 'Trường Trung cấp Công nghiệp Bách Khoa',
+    author: 'Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa',
   },
   {
     id: 'bk-campus-students',
@@ -56,7 +56,7 @@ const SPOTLIGHT_SLIDES: SpotlightSlide[] = [
     subtitle: 'Bên bục giảng phấn trắng và bảng xanh, từng bài học tận tụy của Thầy Cô nâng bước bao thế hệ kỹ thuật viên thành tài.',
     tag: 'Tri Ân Thầy Cô 20/11',
     quote: 'Nhất tự vi sư, bán tự vi sư. Tri ân sâu sắc công lao dưỡng dục của quý Thầy Cô trường Bách Khoa.',
-    author: 'Trường Trung cấp Công nghiệp Bách Khoa',
+    author: 'Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa',
   },
   {
     id: 'mother-love',
@@ -143,7 +143,7 @@ export const PhotoSpotlightSection: React.FC = () => {
           </h2>
           <p className="mt-3 text-stone-600 dark:text-stone-300 text-sm sm:text-base leading-relaxed">
             {activeHoliday === '20-11'
-              ? 'Những khoảnh khắc trang trọng, nụ cười hiền từ của Thầy Cô và sự kính trọng tri ân từ các thế hệ học viên Trường Trung cấp Công nghiệp Bách Khoa.'
+              ? 'Những khoảnh khắc trang trọng, nụ cười hiền từ của Thầy Cô và sự kính trọng tri ân từ các thế hệ học viên Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa.'
               : 'Những khoảnh khắc ngập tràn sắc hoa, nụ cười rạng ngời và tình cảm ấm áp dành tặng những người phụ nữ tuyệt vời nhất trong cuộc đời.'}
           </p>
         </div>

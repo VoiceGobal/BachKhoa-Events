@@ -92,7 +92,7 @@ export const AuthorModal: React.FC<AuthorModalProps> = ({ isOpen, onClose }) => 
                 Đơn vị biên soạn
               </span>
               <span className="text-sm sm:text-base font-bold text-stone-900">
-                Trường Trung cấp Công nghiệp Bách Khoa
+                Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa
               </span>
             </div>
           </div>

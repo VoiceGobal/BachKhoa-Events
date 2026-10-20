@@ -21,6 +21,8 @@ import {
 import { playCelebration, playSoftPop } from '../utils/audio';
 import { useAuth } from '../context/AuthContext';
 import { useEvent } from '../context/EventContext';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface ClaimRewardModalProps {
   isOpen: boolean;
@@ -106,7 +108,33 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
         .filter(Boolean)
         .join(' | ');
 
-      // Gửi lên máy chủ (máy chủ tự đồng bộ lịch sử cá nhân)
+      // 1. Submit to Cloud Firestore if user is authenticated
+      if (currentUser) {
+        try {
+          const claimId = `claim-${claimCode.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+          const claimDocRef = doc(db, 'claims', claimId);
+          await setDoc(claimDocRef, {
+            id: claimId,
+            claimCode,
+            ticketCode: initialTicketCode || '',
+            userId: currentUser.uid,
+            userEmail: currentUser.email || '',
+            fullName: fullName.trim(),
+            momoPhone: momoPhone.trim(),
+            department: schoolClass.trim(),
+            amount: prizeAmount,
+            payoutMethod,
+            note: fullNote,
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (fErr) {
+          console.warn('Firestore claim save warning:', fErr);
+        }
+      }
+
+      // 2. Submit to server endpoint
       const res = await fetch('/api/spin/submit-claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -244,7 +272,7 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
             Thông Tin Người Nhận Giải
           </h3>
           <p className="text-xs text-stone-600 mt-1">
-            Vui lòng cung cấp chính xác để Ban Tổ Chức Trường Trung cấp Công nghiệp Bách Khoa tiến hành trao thưởng.
+            Vui lòng cung cấp chính xác để Ban Tổ Chức Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa tiến hành trao thưởng.
           </p>
           <div className="mt-2.5 flex items-center justify-center gap-2">
             {renderStatusBadge()}
@@ -310,7 +338,7 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
               {/* Top Seal & Heading */}
               <div className="mb-3">
                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-amber-800 block">
-                  Trường Trung Cấp Công Nghiệp Bách Khoa
+                  Trường Trung Cấp Công Nghiệp Bách Khoa Sầm Sơn – Thanh Hóa
                 </span>
                 <h4 className="font-serif text-lg sm:text-xl font-black text-rose-950 mt-1 uppercase tracking-tight">
                   Phiếu Xác Nhận Trao Thưởng Điện Tử
@@ -438,7 +466,7 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
                   <span>{successMsg}</span>
                 </div>
                 <p className="text-[11px] text-emerald-700">
-                  Mã nhận giải: <strong className="font-mono">{claimCode}</strong>. Ban tổ chức Trường Trung cấp Công nghiệp Bách Khoa sẽ đối soát và giải ngân sớm nhất.
+                  Mã nhận giải: <strong className="font-mono">{claimCode}</strong>. Ban tổ chức Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa sẽ đối soát và giải ngân sớm nhất.
                 </p>
               </div>
             )}

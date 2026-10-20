@@ -87,7 +87,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between gap-3 h-18">
           
-          {/* Zone 1: Wordmark Logo (Trường Trung Cấp Công Nghiệp Bách Khoa) & Holiday Selector */}
+          {/* Zone 1: Wordmark Logo (Trường Trung Cấp Công Nghiệp Bách Khoa Sầm Sơn – Thanh Hóa) & Holiday Selector */}
           <div className="flex items-center gap-2 sm:gap-3 shrink min-w-0">
             <a
               href="#"

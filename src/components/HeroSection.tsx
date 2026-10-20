@@ -88,7 +88,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectWishForCard })
             {/* Elegant Tagline */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-purple-100 via-rose-100 to-amber-100 dark:from-purple-950 dark:via-rose-950 dark:to-amber-950 border border-purple-200 dark:border-purple-800 rounded-full text-xs font-bold text-purple-900 dark:text-purple-300 tracking-wide shadow-sm max-w-full text-left">
               <Sparkles className="w-3.5 h-3.5 text-rose-600 animate-spin shrink-0" style={{ animationDuration: '6s' }} />
-              <span className="truncate sm:whitespace-normal">Trường Trung Cấp Công Nghiệp Bách Khoa · {holidayConfig.badge}</span>
+              <span className="truncate sm:whitespace-normal">Trường Trung Cấp Công Nghiệp Bách Khoa Sầm Sơn – Thanh Hóa · {holidayConfig.badge}</span>
             </div>
 
             {/* Main Headline */}

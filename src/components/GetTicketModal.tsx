@@ -20,6 +20,34 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
   const { currentUser } = useAuth();
   const { holidayConfig } = useEvent();
   const [copiedContact, setCopiedContact] = useState<string>('');
+  const [claiming, setClaiming] = useState<boolean>(false);
+  const [claimError, setClaimError] = useState<string>('');
+
+  const handleClaimTicket = async () => {
+    if (!currentUser) return;
+    setClaiming(true);
+    setClaimError('');
+    try {
+      const idToken = await currentUser.getIdToken();
+      const res = await fetch('/api/spin/claim-ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
+        body: JSON.stringify({ occasion: holidayConfig.ticketPrefix }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ticketCode) {
+        setClaimError(data.error || 'Không thể cấp vé lúc này.');
+        return;
+      }
+      onSelectSampleTicket(data.ticketCode);
+      playSoftPop();
+      onClose();
+    } catch {
+      setClaimError('Lỗi kết nối máy chủ. Vui lòng thử lại.');
+    } finally {
+      setClaiming(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -68,7 +96,7 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
             <Ticket className="w-6 h-6" />
           </div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 block">
-            Trường Trung Cấp Công Nghiệp Bách Khoa
+            Trường Trung Cấp Công Nghiệp Bách Khoa Sầm Sơn – Thanh Hóa
           </span>
           <h3 className="font-serif text-2xl font-black text-stone-900 dark:text-white mt-1">
             Cách Nhận Mã Vé Dự Thưởng
@@ -103,6 +131,22 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
                     <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800">
                       <UserCheck className="w-4 h-4 shrink-0" />
                       <span className="truncate">Đã đăng nhập: {currentUser.email}</span>
+                    </div>
+                  ) : null}
+                  {currentUser ? (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={handleClaimTicket}
+                        disabled={claiming}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-purple-700 text-white text-xs font-bold disabled:opacity-60 cursor-pointer"
+                      >
+                        <Ticket className="w-4 h-4" />
+                        <span>{claiming ? 'Đang cấp vé...' : 'Nhận mã vé của tôi'}</span>
+                      </button>
+                      {claimError && (
+                        <p className="mt-2 text-[11px] text-red-600 dark:text-red-400 font-semibold">{claimError}</p>
+                      )}
                     </div>
                   ) : (
                     <button
@@ -162,7 +206,7 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
                   </div>
 
                   <div className="text-[11px] text-stone-500 dark:text-stone-400 italic pt-0.5">
-                    * Đơn vị: Phòng Quản lý Đào tạo & Công tác HSSV – Trường Trung cấp Công nghiệp Bách Khoa.
+                    * Đơn vị: Phòng Quản lý Đào tạo & Công tác HSSV – Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa.
                   </div>
                 </div>
               </div>

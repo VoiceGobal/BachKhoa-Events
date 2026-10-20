@@ -378,7 +378,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
                 </span>
               </div>
               <p className="text-xs text-purple-200">
-                Trường Trung cấp Công nghiệp Bách Khoa · Quản lý vé bảo mật & trao thưởng
+                Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa · Quản lý vé bảo mật & trao thưởng
               </p>
             </div>
           </div>
@@ -439,7 +439,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
               Xác Thực Quyền Quản Trị
             </h4>
             <p className="text-xs text-stone-500 dark:text-stone-400 mb-6">
-              Khu vực bảo mật dành riêng cho Ban Giám Hiệu và Ban Tổ Chức Trường Trung cấp Công nghiệp Bách Khoa.
+              Khu vực bảo mật dành riêng cho Ban Giám Hiệu và Ban Tổ Chức Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa.
             </p>
 
             <form onSubmit={handleLogin} className="w-full space-y-4">

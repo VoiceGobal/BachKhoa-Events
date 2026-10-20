@@ -6,10 +6,8 @@ import firebaseConfig from '../firebase-applet-config.json';
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Dùng database "(default)" (miễn phí). Chỉ truyền id nếu bạn thật sự dùng database đặt tên riêng.
-const dbId = (firebaseConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId;
-export const db =
-  dbId && dbId !== '(default)' ? getFirestore(app, dbId) : getFirestore(app);
+// CRITICAL: Must pass firebaseConfig.firestoreDatabaseId to getFirestore
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 export enum OperationType {

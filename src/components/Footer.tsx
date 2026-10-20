@@ -68,7 +68,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAuthorModal }) => {
             {' · '}
             Biên soạn: <strong className="text-white font-bold">Trịnh Tuấn Cường</strong>
             {' · '}
-            Đơn vị: <strong className="text-purple-300 font-bold">Trường Trung cấp Công nghiệp Bách Khoa</strong>
+            Đơn vị: <strong className="text-purple-300 font-bold">Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa</strong>
             {' · '}
             Năm biên soạn: <strong className="text-white font-mono">2026</strong>
           </p>

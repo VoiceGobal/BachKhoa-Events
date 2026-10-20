@@ -25,6 +25,8 @@ import { playWheelTick, playSuspensePulse, playCelebration, playSoftPop } from '
 import { triggerConfetti } from '../utils/confetti';
 import { useAuth } from '../context/AuthContext';
 import { useEvent, HolidayId } from '../context/EventContext';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { GetTicketModal } from './GetTicketModal';
 
 interface LuckyWheelProps {
@@ -181,16 +183,6 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     };
   }, []);
 
-  // Gắn Firebase ID token (nếu đã đăng nhập) để máy chủ xác thực người quay
-  const authHeaders = async (): Promise<Record<string, string>> => {
-    if (!currentUser) return {};
-    try {
-      return { Authorization: `Bearer ${await currentUser.getIdToken()}` };
-    } catch {
-      return {};
-    }
-  };
-
   // Quick ticket checker
   const handleCheckTicket = async () => {
     const code = ticketInput.trim().toUpperCase();
@@ -234,40 +226,6 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     }
   };
 
-  // Instant quick ticket generator so any visitor can spin without waiting
-  const handleGetQuickTicket = async () => {
-    setErrorMsg('');
-    if (!currentUser) {
-      setErrorMsg('Vui lòng đăng nhập tài khoản để nhận vé nhanh.');
-      onOpenAuthModal();
-      return;
-    }
-    setGeneratingQuickTicket(true);
-    try {
-      const res = await fetch('/api/spin/generate-quick-ticket', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-        body: JSON.stringify({ prefix: holidayConfig.ticketPrefix }),
-      });
-      const data = await res.json();
-      if (res.ok && data.ticketCode) {
-        setTicketInput(data.ticketCode);
-        setTicketStatus({
-          checked: true,
-          valid: true,
-          msg: `Đã cấp vé "${data.ticketCode}" thành công! Bấm "QUAY SỐ NGAY" bên dưới.`,
-        });
-        playSoftPop();
-      } else {
-        setErrorMsg(data?.error || 'Không thể cấp vé nhanh. Bạn có thể nhập mã vé do nhà trường phát.');
-      }
-    } catch {
-      setErrorMsg('Lỗi kết nối khi cấp vé.');
-    } finally {
-      setGeneratingQuickTicket(false);
-    }
-  };
-
   const handleSpin = async (forceDemo = false) => {
     if (spinning) return;
 
@@ -304,18 +262,14 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       let ticketCode: string | undefined = undefined;
       let isDemoResult = forceDemo;
 
-      const useFreeSpin = !hasTicket && !forceDemo && Boolean(currentUser);
-
-      {
-        // Máy chủ quyết định kết quả (vé, quay thử hoặc lượt miễn phí theo tài khoản)
+      if (hasTicket || forceDemo) {
+        // Spin authoritative ticket or demo via server
         const res = await fetch('/api/spin/play', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ticketCode: useFreeSpin ? '' : ticketInput.trim(),
+            ticketCode: ticketInput.trim(),
             isDemo: forceDemo,
-            useFreeSpin,
-            occasion: holidayConfig.id,
           }),
         });
 
@@ -337,14 +291,6 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
         ticketCode = data.ticketCode;
         isDemoResult = Boolean(data.isDemo);
 
-        if (useFreeSpin) {
-          try {
-            await decrementUserSpin();
-          } catch (err) {
-            console.warn('Could not update displayed spin count:', err);
-          }
-        }
-
         // Update ticket status
         if (ticketStatus?.valid) {
           setTicketStatus({
@@ -353,6 +299,31 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
             msg: `Vé "${ticketInput.trim().toUpperCase()}" đã được dùng thành công.`,
           });
         }
+      } else {
+        // Lượt quay miễn phí: server quyết định kết quả và đếm lượt (chỉ lời chúc, không có tiền)
+        const idToken = await currentUser!.getIdToken();
+        const res = await fetch('/api/spin/free', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
+          body: '{}',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setSpinning(false);
+          setNeedleVibrating(false);
+          setErrorMsg(data.error || 'Không thể thực hiện lượt quay miễn phí.');
+          return;
+        }
+        try {
+          await decrementUserSpin(); // chỉ để cập nhật số lượt hiển thị trên hồ sơ
+        } catch (err) {
+          console.warn('Could not sync spin count to profile:', err);
+        }
+        targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
+        label = slices[targetIndex].label;
+        subLabel = slices[targetIndex].subLabel;
+        wishMessage = data.wishMessage || slices[targetIndex].wish;
+        prizeAmount = 0;
       }
 
       // Mathematical rotation alignment (needle at 12 o'clock, 0 degrees)
@@ -401,6 +372,29 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           isDemo: isDemoResult,
         };
         setWinningData(resultObj);
+
+        // Record spin into Cloud Firestore if logged in
+        if (currentUser && !isDemoResult) {
+          try {
+            const spinId = `spin-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const spinDocRef = doc(db, 'spins', spinId);
+            await setDoc(spinDocRef, {
+              id: spinId,
+              userId: currentUser.uid,
+              userEmail: currentUser.email || '',
+              segmentIndex: targetIndex,
+              label,
+              wishMessage,
+              prizeAmount,
+              isCashPrize: prizeAmount > 0,
+              claimCode: claimCode || '',
+              claimed: false,
+              createdAt: new Date().toISOString(),
+            });
+          } catch (fireErr) {
+            console.warn('Could not save spin record to Firestore:', fireErr);
+          }
+        }
 
         playCelebration();
         triggerConfetti();
@@ -481,7 +475,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           </h2>
           
           <p className="mt-3 text-stone-300 text-sm sm:text-base leading-relaxed">
-            Chương trình quay số dự thưởng chào mừng sự kiện tại <strong className="text-amber-300 font-semibold">Trường Trung cấp Công nghiệp Bách Khoa</strong>.
+            Chương trình quay số dự thưởng chào mừng sự kiện tại <strong className="text-amber-300 font-semibold">Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa</strong>.
             Quý vị nhập Mã Vé Dự Thưởng được phát hành để tham gia quay thưởng và nhận lì xì MoMo hấp dẫn!
           </p>
 
@@ -745,12 +739,12 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-stone-200 mb-1.5">
-                  Nhập mã vé dự thưởng (Ví dụ: {holidayConfig.ticketPrefix}-001)
+                  Nhập mã vé dự thưởng (8 ký tự, ví dụ: {holidayConfig.ticketPrefix}7K9M3X)
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder={`Nhập mã ${holidayConfig.ticketPrefix}-XXX...`}
+                    placeholder={`Nhập mã ${holidayConfig.ticketPrefix}XXXXXX`}
                     value={ticketInput}
                     onChange={(e) => {
                       setTicketInput(e.target.value.toUpperCase());
@@ -881,7 +875,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
                 <span>Quy trình quay số & trao giải minh bạch</span>
               </div>
               <p className="leading-relaxed text-stone-300 text-[11px]">
-                Mã vé dự thưởng do Trường Trung cấp Công nghiệp Bách Khoa quản lý và phát hành. Khi trúng thưởng, hệ thống lập tức xuất mã nhận giải độc bản và tiếp nhận thông tin người nhận để Ban Tổ Chức trao giải trực tiếp hoặc chuyển khoản MoMo.
+                Mã vé dự thưởng do Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa quản lý và phát hành. Khi trúng thưởng, hệ thống lập tức xuất mã nhận giải độc bản và tiếp nhận thông tin người nhận để Ban Tổ Chức trao giải trực tiếp hoặc chuyển khoản MoMo.
               </p>
             </div>
 
