@@ -1,0 +1,226 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile with spin allowances and basic info",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "User unique ID matching auth.uid",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "User registered email",
+          "minLength": 3,
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of user",
+          "maxLength": 100
+        },
+        "spinsRemaining": {
+          "type": "integer",
+          "description": "Number of lucky wheel spins left"
+        },
+        "totalSpins": {
+          "type": "integer",
+          "description": "Total spins performed"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of account registration",
+          "maxLength": 50
+        },
+        "lastSpinAt": {
+          "type": "string",
+          "description": "ISO timestamp of last spin action",
+          "maxLength": 50
+        }
+      },
+      "required": ["uid", "email", "spinsRemaining", "createdAt"]
+    },
+    "SpinRecord": {
+      "title": "Spin Record",
+      "description": "A record of an individual spin result",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Document ID of spin record",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the player",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Email address of the player",
+          "maxLength": 128
+        },
+        "segmentIndex": {
+          "type": "integer",
+          "description": "Wheel slice index (0-7)"
+        },
+        "label": {
+          "type": "string",
+          "description": "Wheel slice label",
+          "maxLength": 100
+        },
+        "wishMessage": {
+          "type": "string",
+          "description": "Wish content or prize notification text",
+          "maxLength": 1000
+        },
+        "prizeAmount": {
+          "type": "integer",
+          "description": "Cash prize amount in VND if any"
+        },
+        "isCashPrize": {
+          "type": "boolean",
+          "description": "Flag indicating if this is a MoMo cash prize"
+        },
+        "claimCode": {
+          "type": "string",
+          "description": "Unique claim code if prize won",
+          "maxLength": 50
+        },
+        "claimed": {
+          "type": "boolean",
+          "description": "Whether reward claim was submitted"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of spin creation",
+          "maxLength": 50
+        }
+      },
+      "required": ["id", "userId", "segmentIndex", "label", "wishMessage", "createdAt"]
+    },
+    "ClaimRecord": {
+      "title": "Claim Record",
+      "description": "MoMo reward claim details submitted by winning user",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Document ID of claim record",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "claimCode": {
+          "type": "string",
+          "description": "Unique prize claim code",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of winning user",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Email of winning user",
+          "maxLength": 128
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Full name of claimant",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "momoPhone": {
+          "type": "string",
+          "description": "MoMo registered phone number",
+          "minLength": 9,
+          "maxLength": 15
+        },
+        "department": {
+          "type": "string",
+          "description": "Class or department in school / workplace",
+          "maxLength": 150
+        },
+        "amount": {
+          "type": "integer",
+          "description": "Amount in VND (e.g. 10000, 20000, 50000, 100000)"
+        },
+        "note": {
+          "type": "string",
+          "description": "User notes",
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "description": "Status of the claim",
+          "enum": ["pending", "verified", "transferred", "rejected"]
+        },
+        "adminNote": {
+          "type": "string",
+          "description": "Administrator response note",
+          "maxLength": 500
+        },
+        "transactionRef": {
+          "type": "string",
+          "description": "MoMo transaction ID once transferred",
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of submission",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update",
+          "maxLength": 50
+        }
+      },
+      "required": ["id", "claimCode", "userId", "fullName", "momoPhone", "amount", "status", "createdAt"]
+    },
+    "AdminUser": {
+      "title": "Admin User",
+      "description": "Admin identity for reviewing claims",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Admin email",
+          "maxLength": 128
+        },
+        "role": {
+          "type": "string",
+          "description": "Role label (admin, superadmin)",
+          "maxLength": 30
+        }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private user profile and spin counter"
+    },
+    "/spins/{spinId}": {
+      "schema": "SpinRecord",
+      "description": "Individual spin history records for authenticated users"
+    },
+    "/claims/{claimId}": {
+      "schema": "ClaimRecord",
+      "description": "MoMo reward claims submitted by users, reviewable by admin"
+    },
+    "/admins/{adminId}": {
+      "schema": "AdminUser",
+      "description": "Designated admin accounts who can verify and approve claims"
+    }
+  }
+}
