@@ -30,8 +30,6 @@ import { db } from '../firebase';
 import { GetTicketModal } from './GetTicketModal';
 import {
   getFirestoreEventConfig,
-  checkFirestoreTicket,
-  executeClientSpin,
   getFirestoreTickets,
 } from '../services/firestoreService';
 
@@ -208,7 +206,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     };
   }, []);
 
-  // Quick ticket checker with Cloud Firestore fallback
+  // Ticket validity is checked by the authoritative server.
   const handleCheckTicket = async () => {
     const code = ticketInput.trim().toUpperCase();
     if (!code) {
@@ -220,50 +218,31 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     setTicketStatus(null);
 
     try {
-      let checkedViaApi = false;
-      try {
-        const res = await fetch('/api/spin/check-ticket', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketCode: code }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          checkedViaApi = true;
-          if (data.valid) {
-            setTicketStatus({
-              checked: true,
-              valid: true,
-              msg: data.message || `Mã vé "${code}" hợp lệ! Bấm "Quay Số Bằng Mã Vé" để tham gia nhận thưởng.`,
-            });
-            playSoftPop();
-          } else {
-            setTicketStatus({
-              checked: true,
-              valid: false,
-              msg: data.error || `Mã vé "${code}" không hợp lệ hoặc đã qua sử dụng.`,
-            });
-          }
-        }
-      } catch {
-        // API offline or on Vercel
-      }
-
-      if (!checkedViaApi) {
-        // Fallback directly to Cloud Firestore
-        const result = await checkFirestoreTicket(code);
+      const res = await fetch('/api/spin/check-ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketCode: code }),
+      });
+      const data = await res.json();
+      if (res.ok && data.valid) {
         setTicketStatus({
           checked: true,
-          valid: result.valid,
-          msg: result.message,
+          valid: true,
+          msg: data.message || `Mã vé "${code}" hợp lệ! Bấm "Quay Số Bằng Mã Vé" để tham gia nhận thưởng.`,
         });
-        if (result.valid) playSoftPop();
+        playSoftPop();
+      } else {
+        setTicketStatus({
+          checked: true,
+          valid: false,
+          msg: data.error || `Mã vé "${code}" không hợp lệ hoặc đã qua sử dụng.`,
+        });
       }
     } catch {
       setTicketStatus({
         checked: true,
         valid: false,
-        msg: 'Không thể kết nối CSDL kiểm tra vé.',
+        msg: 'Không thể kết nối máy chủ để kiểm tra vé. Vui lòng thử lại sau.',
       });
     } finally {
       setCheckingTicket(false);
@@ -306,55 +285,22 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       let isDemoResult = forceDemo;
 
       if (hasTicket || forceDemo) {
-        let spinSucceeded = false;
-        try {
-          const res = await fetch('/api/spin/play', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ticketCode: ticketInput.trim(),
-              isDemo: forceDemo,
-            }),
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
-            const matchingSlice = slices[targetIndex];
-            label = matchingSlice.label;
-            subLabel = matchingSlice.subLabel;
-            wishMessage = data.wishMessage || matchingSlice.wish;
-            prizeAmount = data.prizeAmount || matchingSlice.amount;
-            claimCode = data.claimCode;
-            ticketCode = data.ticketCode;
-            isDemoResult = Boolean(data.isDemo);
-            spinSucceeded = true;
-          }
-        } catch {
-          // Server endpoint down or running on Vercel
-        }
-
-        // Direct Cloud Firestore execution if server endpoint is unavailable
-        if (!spinSucceeded) {
-          const clientSpin = await executeClientSpin(
-            {
-              ticketCode: ticketInput.trim(),
-              isDemo: forceDemo,
-              userId: currentUser?.uid,
-              userEmail: currentUser?.email || undefined,
-            },
-            slices
-          );
-          targetIndex = clientSpin.segmentIndex % 8;
-          const matchingSlice = slices[targetIndex];
-          label = matchingSlice.label;
-          subLabel = matchingSlice.subLabel;
-          wishMessage = clientSpin.wishMessage || matchingSlice.wish;
-          prizeAmount = clientSpin.prizeAmount;
-          claimCode = clientSpin.claimCode;
-          ticketCode = clientSpin.ticketCode;
-          isDemoResult = clientSpin.isDemo;
-        }
+        const res = await fetch('/api/spin/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketCode: ticketInput.trim(), isDemo: forceDemo }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Máy chủ không thể xử lý lượt quay.');
+        targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
+        const matchingSlice = slices[targetIndex];
+        label = matchingSlice.label;
+        subLabel = matchingSlice.subLabel;
+        wishMessage = data.wishMessage || matchingSlice.wish;
+        prizeAmount = data.prizeAmount ?? matchingSlice.amount;
+        claimCode = data.claimCode;
+        ticketCode = data.ticketCode;
+        isDemoResult = Boolean(data.isDemo);
 
         // Update ticket status
         if (ticketStatus?.valid) {
@@ -365,37 +311,19 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           });
         }
       } else {
-        // Lượt quay miễn phí: thử server trước, nếu không được fallback client
-        let freeSucceeded = false;
-        try {
-          const idToken = await currentUser!.getIdToken();
-          const res = await fetch('/api/spin/free', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
-            body: '{}',
-          });
-          if (res.ok) {
-            const data = await res.json();
-            targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
-            label = slices[targetIndex].label;
-            subLabel = slices[targetIndex].subLabel;
-            wishMessage = data.wishMessage || slices[targetIndex].wish;
-            prizeAmount = 0;
-            freeSucceeded = true;
-          }
-        } catch {
-          // Fall through
-        }
-
-        if (!freeSucceeded) {
-          const wishIndices = slices.map((s, idx) => (!s.isCash ? idx : -1)).filter((idx) => idx !== -1);
-          targetIndex = wishIndices[Math.floor(Math.random() * wishIndices.length)];
-          label = slices[targetIndex].label;
-          subLabel = slices[targetIndex].subLabel;
-          wishMessage = slices[targetIndex].wish;
-          prizeAmount = 0;
-        }
-
+        const idToken = await currentUser!.getIdToken();
+        const res = await fetch('/api/spin/free', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
+          body: '{}',
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Máy chủ không thể xử lý lượt quay miễn phí.');
+        targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
+        label = slices[targetIndex].label;
+        subLabel = slices[targetIndex].subLabel;
+        wishMessage = data.wishMessage || slices[targetIndex].wish;
+        prizeAmount = 0;
         try {
           await decrementUserSpin();
         } catch (err) {
@@ -485,10 +413,10 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       }, 4800);
 
       spinTimeoutsRef.current.push(finishTimer);
-    } catch {
+    } catch (err) {
       setSpinning(false);
       setNeedleVibrating(false);
-      setErrorMsg('Đã có lỗi xảy ra khi thực hiện vòng quay. Vui lòng thử lại.');
+      setErrorMsg(err instanceof Error ? err.message : 'Đã có lỗi xảy ra khi thực hiện vòng quay. Vui lòng thử lại.');
     }
   };
 

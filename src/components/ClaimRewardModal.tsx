@@ -21,9 +21,6 @@ import {
 import { playCelebration, playSoftPop } from '../utils/audio';
 import { useAuth } from '../context/AuthContext';
 import { useEvent } from '../context/EventContext';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { submitFirestoreClaim } from '../services/firestoreService';
 import { safeLocalStorage } from '../utils/storage';
 
 interface ClaimRewardModalProps {
@@ -41,7 +38,7 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
   prizeAmount,
   initialTicketCode,
 }) => {
-  const { currentUser, userProfile } = useAuth();
+  const { userProfile } = useAuth();
   const { holidayConfig } = useEvent();
 
   const [payoutMethod, setPayoutMethod] = useState<'momo' | 'bank' | 'in_person'>('momo');
@@ -110,63 +107,20 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
         .filter(Boolean)
         .join(' | ');
 
-      // 1. Submit to Cloud Firestore if user is authenticated
-      if (currentUser) {
-        try {
-          const claimId = `claim-${claimCode.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-          const claimDocRef = doc(db, 'claims', claimId);
-          await setDoc(claimDocRef, {
-            id: claimId,
-            claimCode,
-            ticketCode: initialTicketCode || '',
-            userId: currentUser.uid,
-            userEmail: currentUser.email || '',
-            fullName: fullName.trim(),
-            momoPhone: momoPhone.trim(),
-            department: schoolClass.trim(),
-            amount: prizeAmount,
-            payoutMethod,
-            note: fullNote,
-            status: 'pending',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        } catch (fErr) {
-          console.warn('Firestore claim save warning:', fErr);
-        }
-      }
-
-      // Always save directly to Cloud Firestore
-      try {
-        await submitFirestoreClaim({
+      const response = await fetch('/api/spin/submit-claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           claimCode,
-          ticketCode: initialTicketCode || '',
-          amount: prizeAmount,
           fullName: fullName.trim(),
           schoolClassOrDepartment: schoolClass.trim(),
           momoPhone: momoPhone.trim(),
           guardianNote: fullNote,
-          userId: currentUser?.uid,
-        });
-      } catch (fErr) {
-        console.warn('Firestore claim save error:', fErr);
-      }
-
-      // Also try submitting to server endpoint if running
-      try {
-        await fetch('/api/spin/submit-claim', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            claimCode,
-            fullName: fullName.trim(),
-            schoolClassOrDepartment: schoolClass.trim(),
-            momoPhone: momoPhone.trim(),
-            guardianNote: fullNote,
-          }),
-        });
-      } catch {
-        // Server endpoint optional on Vercel
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Không thể gửi thông tin nhận thưởng.');
       }
 
       // Save to local storage for offline retrieval
@@ -184,7 +138,7 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
         safeLocalStorage.setItem('my_event_claims', JSON.stringify(saved.slice(0, 20)));
       } catch {}
 
-      setClaimStatus('pending');
+      setClaimStatus(result.status || 'pending_verification');
       setSuccessMsg('Đã gửi thông tin nhận thưởng thành công! Ban Tổ Chức sẽ xác minh và chuyển khoản MoMo cho bạn.');
       setHasSubmitted(true);
       playCelebration();

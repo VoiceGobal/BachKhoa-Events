@@ -24,15 +24,9 @@ import {
 import { MomoPrizeTier, RewardClaim, SpinTicket, AdminAuditLog } from '../types';
 import { playSoftPop, playCelebration } from '../utils/audio';
 import { useAuth } from '../context/AuthContext';
-import { doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../firebase';
 import {
   loadFirestoreAdminDashboard,
-  saveFirestorePrizeTiers,
   saveFirestoreEventConfig,
-  updateFirestoreClaimStatus,
-  generateTicketCode,
-  addFirestoreAuditLog,
 } from '../services/firestoreService';
 import { safeSessionStorage } from '../utils/storage';
 
@@ -221,26 +215,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     setActionSuccess('');
     setActionError('');
     try {
-      // 1. Always update directly in Cloud Firestore
-      await updateFirestoreClaimStatus(claimCode, newStatus, extra);
-
-      // 2. Also try server endpoint if available
-      try {
-        await fetch('/api/admin/update-claim', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            claimCode,
-            newStatus,
-            ...extra,
-          }),
-        });
-      } catch {
-        // Optional on Vercel
-      }
+      const response = await fetch('/api/admin/update-claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ claimCode, newStatus, ...extra }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Không thể cập nhật yêu cầu nhận thưởng.');
 
       setActionSuccess(`Đã cập nhật trạng thái mã ${claimCode} thành công!`);
       setSelectedClaim(null);
@@ -258,41 +239,14 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     setActionSuccess('');
     setActionError('');
     try {
-      const createdCodes: string[] = [];
-      const prefix = newTicketOccasion === '20-11' ? 'NG' : newTicketOccasion === 'tet' ? 'TT' : 'PN';
-
-      // 1. Write tickets directly to Cloud Firestore
-      for (let i = 0; i < newTicketCount; i++) {
-        const code = generateTicketCode(prefix);
-        createdCodes.push(code);
-        const ticketRef = doc(db, 'tickets', code);
-        await setDoc(ticketRef, {
-          code,
-          occasion: newTicketOccasion,
-          isUsed: false,
-          createdAt: new Date().toISOString(),
-        });
-      }
-
-      await addFirestoreAuditLog({
-        action: 'Tạo vé dự thưởng mới',
-        details: `Quản trị viên đã tạo ${newTicketCount} vé mới dịp ${newTicketOccasion}`,
-        adminUser: currentUser?.email || 'Admin Bách Khoa',
+      const response = await fetch('/api/admin/generate-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ count: newTicketCount, occasion: newTicketOccasion }),
       });
-
-      // 2. Also try server endpoint if available
-      try {
-        await fetch('/api/admin/generate-tickets', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ count: newTicketCount, occasion: newTicketOccasion }),
-        });
-      } catch {
-        // Optional on Vercel
-      }
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Không thể phát hành vé.');
+      const createdCodes: string[] = result.tickets || [];
 
       setActionSuccess(`Đã tạo thành công ${createdCodes.length} vé dự thưởng bảo mật 8 ký tự cho dịp ${newTicketOccasion}!`);
       setRecentlyGenerated(createdCodes);
@@ -308,26 +262,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     setActionSuccess('');
     setActionError('');
     try {
-      // 1. Delete from Cloud Firestore
-      try {
-        await deleteDoc(doc(db, 'tickets', code));
-      } catch (fErr) {
-        console.warn('Firestore ticket delete warning:', fErr);
-      }
-
-      // 2. Also call server endpoint if available
-      try {
-        await fetch('/api/admin/delete-ticket', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ code }),
-        });
-      } catch {
-        // Optional on Vercel
-      }
+      const response = await fetch('/api/admin/delete-ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Không thể thu hồi vé.');
 
       setActionSuccess(`Đã thu hồi vé ${code} thành công.`);
       fetchAdminData(token || 'admin');
@@ -383,24 +324,15 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     setActionError('');
     setSavingSettings(true);
     try {
-      // 1. Save directly to Cloud Firestore
-      await saveFirestorePrizeTiers(editableTiers);
+      const response = await fetch('/api/admin/update-prize-pool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tiers: editableTiers }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Không thể lưu cơ cấu giải thưởng.');
 
-      // 2. Also sync to server endpoint if running
-      try {
-        await fetch('/api/admin/update-prize-pool', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ tiers: editableTiers }),
-        });
-      } catch {
-        // Optional on Vercel
-      }
-
-      setActionSuccess('Đã lưu cấu hình các mức giải thưởng MoMo vào Cloud Firestore thành công!');
+      setActionSuccess('Đã lưu cấu hình các mức giải thưởng MoMo trên máy chủ thành công!');
       fetchAdminData(token || 'admin');
       playCelebration();
     } catch (err: unknown) {

@@ -412,7 +412,7 @@ function generateSecureTicketCode(prefix: string): string {
 const DATA_DIR = path.resolve(process.env.DATA_DIR || 'data');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 
-function saveDatabase() {
+function saveDatabase(): boolean {
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -429,9 +429,45 @@ function saveDatabase() {
     const tmp = DB_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf-8');
     fs.renameSync(tmp, DB_FILE); // ghi nguyên tử, tránh hỏng file khi sập giữa chừng
+    return true;
   } catch (err) {
     console.error('[DB] Failed to save database to disk:', err);
+    return false;
   }
+}
+
+// Mutations that affect ticket eligibility, prize inventory, and claims must
+// either be persisted together or not become visible in memory.
+function runStoreTransaction(mutate: () => void): boolean {
+  const previous = {
+    eventConfig: { ...eventConfig },
+    prizeTiers: JSON.parse(JSON.stringify(prizeTiers)) as PrizeTierInternal[],
+    tickets: Array.from(ticketsMap.values(), (ticket) => ({ ...ticket })),
+    claims: Array.from(claimsMap.values(), (claim) => ({ ...claim })),
+    auditLogs: auditLogs.map((entry) => ({ ...entry })),
+    ticketOwners: Object.fromEntries(ticketOwners),
+    freeSpinsUsed: Object.fromEntries(freeSpinsUsed),
+  };
+
+  try {
+    mutate();
+    if (saveDatabase()) return true;
+  } catch (err) {
+    console.error('[DB] Transaction failed:', err);
+  }
+
+  Object.assign(eventConfig, previous.eventConfig);
+  prizeTiers = previous.prizeTiers;
+  ticketsMap.clear();
+  previous.tickets.forEach((ticket) => ticketsMap.set(ticket.code, ticket));
+  claimsMap.clear();
+  previous.claims.forEach((claim) => claimsMap.set(claim.claimCode, claim));
+  auditLogs.splice(0, auditLogs.length, ...previous.auditLogs);
+  ticketOwners.clear();
+  Object.entries(previous.ticketOwners).forEach(([key, value]) => ticketOwners.set(key, String(value)));
+  freeSpinsUsed.clear();
+  Object.entries(previous.freeSpinsUsed).forEach(([key, value]) => freeSpinsUsed.set(key, Number(value)));
+  return false;
 }
 
 function loadDatabase() {
@@ -664,17 +700,19 @@ app.post('/api/spin/claim-ticket', async (req: Request, res: Response) => {
   }
 
   const newCode = generateSecureTicketCode(occPrefix);
-  ticketsMap.set(newCode, { code: newCode, occasion: occId, isUsed: false, createdAt: new Date().toISOString() });
-  ticketOwners.set(ownerKey, newCode);
-
-  auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    action: 'Cấp vé cho tài khoản',
-    details: `Vé ${newCode} (dịp ${occId}) cấp cho ${user.email}`,
-    timestamp: new Date().toISOString(),
-    adminUser: 'Cổng sự kiện tự động',
+  const createdAt = new Date().toISOString();
+  const committed = runStoreTransaction(() => {
+    ticketsMap.set(newCode, { code: newCode, occasion: occId, isUsed: false, createdAt });
+    ticketOwners.set(ownerKey, newCode);
+    auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      action: 'Cấp vé cho tài khoản',
+      details: `Vé ${newCode} (dịp ${occId}) cấp cho ${user.email}`,
+      timestamp: createdAt,
+      adminUser: 'Cổng sự kiện tự động',
+    });
   });
-  saveDatabase();
+  if (!committed) return res.status(503).json({ error: 'Không thể lưu vé an toàn. Vui lòng thử lại.' });
   return res.json({ success: true, ticketCode: newCode, isNew: true });
 });
 
@@ -691,8 +729,8 @@ app.post('/api/spin/free', async (req: Request, res: Response) => {
   if (used >= MAX_FREE_SPINS) {
     return res.status(400).json({ error: `Tài khoản đã dùng hết ${MAX_FREE_SPINS} lượt quay miễn phí.` });
   }
-  freeSpinsUsed.set(user.uid, used + 1);
-  saveDatabase();
+  const committed = runStoreTransaction(() => freeSpinsUsed.set(user.uid, used + 1));
+  if (!committed) return res.status(503).json({ error: 'Không thể lưu lượt quay an toàn. Vui lòng thử lại.' });
 
   const wishSlices = UNIFIED_SLICES.filter((sl) => !sl.isCash);
   const pick = wishSlices[crypto.randomInt(wishSlices.length)];
@@ -795,10 +833,15 @@ app.post('/api/spin/play', (req: Request, res: Response) => {
 
   if (availableTiers.length === 0) {
     // All cash prizes have been awarded!
-    ticket.isUsed = true;
-    ticket.usedAt = new Date().toISOString();
-    ticket.prizeWon = 0;
-    saveDatabase();
+    const usedAt = new Date().toISOString();
+    const committed = runStoreTransaction(() => {
+      ticket.isUsed = true;
+      ticket.usedAt = usedAt;
+      ticket.prizeWon = 0;
+    });
+    if (!committed) {
+      return res.status(503).json({ error: 'Không thể lưu lượt quay an toàn. Vui lòng thử lại.' });
+    }
 
     return res.json({
       success: true,
@@ -826,9 +869,6 @@ app.post('/api/spin/play', (req: Request, res: Response) => {
     roll -= t.remainingQuantity;
   }
 
-  // Atomically decrement remaining quantity
-  selectedTier.remainingQuantity -= 1;
-
   // Generate unique claim code
   const randomSuffix = randomCode(10); // không đoán được
   let eventLabel = 'Chương trình 20/10 – Trao Lời Yêu Thương';
@@ -849,12 +889,6 @@ app.post('/api/spin/play', (req: Request, res: Response) => {
 
   const claimCode = `${claimPrefix}-${randomSuffix}`;
 
-  // Update ticket
-  ticket.isUsed = true;
-  ticket.usedAt = new Date().toISOString();
-  ticket.prizeWon = selectedTier.amount;
-  ticket.claimCode = claimCode;
-
   // Create claim record
   const newClaim: ClaimInternal = {
     id: `claim-${Date.now()}-${randomSuffix}`,
@@ -867,8 +901,6 @@ app.post('/api/spin/play', (req: Request, res: Response) => {
     status: 'unclaimed',
     createdAt: new Date().toISOString(),
   };
-  claimsMap.set(claimCode, newClaim);
-
   // Map to wheel segment index for graphic alignment
   // 10.000đ -> index 0, 20.000đ -> index 2, 50.000đ -> index 4, 100.000đ -> index 6
   let segmentIndex = 0;
@@ -877,16 +909,25 @@ app.post('/api/spin/play', (req: Request, res: Response) => {
   else if (selectedTier.amount === 50000) segmentIndex = 4;
   else if (selectedTier.amount === 100000) segmentIndex = 6;
 
-  // Add audit log
-  auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    action: 'Trúng thưởng MoMo',
-    details: `Vé ${cleanCode} trúng ${selectedTier.label}. Mã nhận thưởng: ${claimCode}`,
-    timestamp: new Date().toISOString(),
-    adminUser: 'Người tham gia',
+  const spinTimestamp = new Date().toISOString();
+  const committed = runStoreTransaction(() => {
+    selectedTier.remainingQuantity -= 1;
+    ticket.isUsed = true;
+    ticket.usedAt = spinTimestamp;
+    ticket.prizeWon = selectedTier.amount;
+    ticket.claimCode = claimCode;
+    claimsMap.set(claimCode, newClaim);
+    auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      action: 'Trúng thưởng MoMo',
+      details: `Vé ${cleanCode} trúng ${selectedTier.label}. Mã nhận thưởng: ${claimCode}`,
+      timestamp: spinTimestamp,
+      adminUser: 'Người tham gia',
+    });
   });
-
-  saveDatabase();
+  if (!committed) {
+    return res.status(503).json({ error: 'Không thể lưu kết quả và giải thưởng an toàn. Vui lòng thử lại.' });
+  }
 
   return res.json({
     success: true,
@@ -968,22 +1009,24 @@ app.post('/api/spin/submit-claim', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Vui lòng nhập Lớp học hoặc Phòng/Ban công tác tại trường.' });
   }
 
-  // Update claim to pending_verification
-  claim.fullName = cleanName;
-  claim.schoolClassOrDepartment = cleanClass;
-  claim.momoPhone = cleanPhone;
-  claim.guardianNote = String(guardianNote || '').trim().slice(0, 500);
-  claim.status = 'pending_verification';
-
-  auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    action: 'Nộp yêu cầu nhận thưởng',
-    details: `${cleanName} (${cleanClass}) yêu cầu nhận ${claim.amount.toLocaleString()}đ qua MoMo ${maskPhone(cleanPhone)}. Mã: ${cleanClaimCode}`,
-    timestamp: new Date().toISOString(),
-    adminUser: 'Người nhận thưởng',
+  const submittedAt = new Date().toISOString();
+  const committed = runStoreTransaction(() => {
+    claim.fullName = cleanName;
+    claim.schoolClassOrDepartment = cleanClass;
+    claim.momoPhone = cleanPhone;
+    claim.guardianNote = String(guardianNote || '').trim().slice(0, 500);
+    claim.status = 'pending_verification';
+    auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      action: 'Nộp yêu cầu nhận thưởng',
+      details: `${cleanName} (${cleanClass}) yêu cầu nhận ${claim.amount.toLocaleString()}đ qua MoMo ${maskPhone(cleanPhone)}. Mã: ${cleanClaimCode}`,
+      timestamp: submittedAt,
+      adminUser: 'Người nhận thưởng',
+    });
   });
-
-  saveDatabase();
+  if (!committed) {
+    return res.status(503).json({ error: 'Không thể lưu thông tin nhận thưởng an toàn. Vui lòng thử lại.' });
+  }
 
   return res.json({
     success: true,
@@ -1080,32 +1123,27 @@ app.post('/api/admin/update-claim', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Vui lòng nhập Mã giao dịch chuyển tiền MoMo thực tế.' });
   }
 
-  claim.status = newStatus;
-  if (adminNote !== undefined) claim.adminNote = adminNote;
-
-  if (newStatus === 'verified') {
-    claim.verifiedAt = new Date().toISOString();
-  } else if (newStatus === 'pending_transfer') {
-    // Status updated to pending transfer
-  } else if (newStatus === 'transferred') {
-    if (!momoTransactionRef) {
-      return res.status(400).json({ error: 'Vui lòng nhập Mã giao dịch chuyển tiền MoMo thực tế.' });
+  const updatedAt = new Date().toISOString();
+  const committed = runStoreTransaction(() => {
+    claim.status = newStatus;
+    if (adminNote !== undefined) claim.adminNote = adminNote;
+    if (newStatus === 'verified') {
+      claim.verifiedAt = updatedAt;
+    } else if (newStatus === 'transferred') {
+      claim.transferredAt = updatedAt;
+      claim.momoTransactionRef = momoTransactionRef;
+    } else if (newStatus === 'rejected') {
+      claim.rejectionReason = rejectionReason || 'Thông tin xác minh không phù hợp.';
     }
-    claim.transferredAt = new Date().toISOString();
-    claim.momoTransactionRef = momoTransactionRef;
-  } else if (newStatus === 'rejected') {
-    claim.rejectionReason = rejectionReason || 'Thông tin xác minh không phù hợp.';
-  }
-
-  auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    action: `Cập nhật trạng thái nhận thưởng: ${newStatus}`,
-    details: `Mã ${claimCode} - Người nhận: ${claim.fullName || 'Chưa cập nhật'} - Ghi chú: ${momoTransactionRef || rejectionReason || adminNote || ''}`,
-    timestamp: new Date().toISOString(),
-    adminUser: 'Admin Bách Khoa',
+    auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      action: `Cập nhật trạng thái nhận thưởng: ${newStatus}`,
+      details: `Mã ${claimCode} - Người nhận: ${claim.fullName || 'Chưa cập nhật'} - Ghi chú: ${momoTransactionRef || rejectionReason || adminNote || ''}`,
+      timestamp: updatedAt,
+      adminUser: 'Admin Bách Khoa',
+    });
   });
-
-  saveDatabase();
+  if (!committed) return res.status(503).json({ error: 'Không thể lưu trạng thái nhận thưởng an toàn. Vui lòng thử lại.' });
 
   return res.json({ success: true, claim });
 });
@@ -1122,26 +1160,22 @@ app.post('/api/admin/generate-tickets', (req: Request, res: Response) => {
   const occId = getOccasionFromCode(occPrefix);
   const generated: string[] = [];
 
-  for (let i = 0; i < numCount; i++) {
-    const code = generateSecureTicketCode(occPrefix);
-    ticketsMap.set(code, {
-      code,
-      occasion: occId,
-      isUsed: false,
-      createdAt: new Date().toISOString(),
+  const createdAt = new Date().toISOString();
+  const committed = runStoreTransaction(() => {
+    for (let i = 0; i < numCount; i++) {
+      const code = generateSecureTicketCode(occPrefix);
+      ticketsMap.set(code, { code, occasion: occId, isUsed: false, createdAt });
+      generated.push(code);
+    }
+    auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      action: `Phát hành ${numCount} vé bảo mật dịp ${occId}`,
+      details: `Tạo ${numCount} vé 8 ký tự (VD: ${generated[0]} đến ${generated[generated.length - 1]})`,
+      timestamp: createdAt,
+      adminUser: 'Admin Bách Khoa',
     });
-    generated.push(code);
-  }
-
-  auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    action: `Phát hành ${numCount} vé bảo mật dịp ${occId}`,
-    details: `Tạo ${numCount} vé 8 ký tự (VD: ${generated[0]} đến ${generated[generated.length - 1]})`,
-    timestamp: new Date().toISOString(),
-    adminUser: 'Admin Bách Khoa',
   });
-
-  saveDatabase();
+  if (!committed) return res.status(503).json({ error: 'Không thể lưu lô vé an toàn. Vui lòng thử lại.' });
 
   res.json({ success: true, count: generated.length, tickets: generated });
 });
@@ -1162,17 +1196,17 @@ app.post('/api/admin/delete-ticket', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Không thể xóa vé đã qua sử dụng quay thưởng.' });
   }
 
-  ticketsMap.delete(cleanCode);
-
-  auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    action: 'Hủy/Xóa vé dự thưởng',
-    details: `Đã thu hồi mã vé ${cleanCode}`,
-    timestamp: new Date().toISOString(),
-    adminUser: 'Admin Bách Khoa',
+  const committed = runStoreTransaction(() => {
+    ticketsMap.delete(cleanCode);
+    auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      action: 'Hủy/Xóa vé dự thưởng',
+      details: `Đã thu hồi mã vé ${cleanCode}`,
+      timestamp: new Date().toISOString(),
+      adminUser: 'Admin Bách Khoa',
+    });
   });
-
-  saveDatabase();
+  if (!committed) return res.status(503).json({ error: 'Không thể thu hồi vé an toàn. Vui lòng thử lại.' });
 
   res.json({ success: true, message: `Đã thu hồi vé ${cleanCode}.` });
 });
@@ -1202,7 +1236,7 @@ app.post('/api/admin/update-prize-pool', (req: Request, res: Response) => {
     }
   }
 
-  prizeTiers = tiers.map((t) => ({
+  const nextTiers = tiers.map((t) => ({
     id: t.id || `tier-${t.amount}`,
     amount: Number(t.amount),
     label: t.label || `${Number(t.amount).toLocaleString('vi-VN')}đ`,
@@ -1211,16 +1245,17 @@ app.post('/api/admin/update-prize-pool', (req: Request, res: Response) => {
     color: t.color || '#FEE2E2',
     textColor: t.textColor || '#991B1B',
   }));
-
-  auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    action: 'Cập nhật cấu hình giải thưởng',
-    details: `Quản trị viên đã cập nhật lại danh sách và số lượng các mức thưởng MoMo`,
-    timestamp: new Date().toISOString(),
-    adminUser: 'Admin Bách Khoa',
+  const committed = runStoreTransaction(() => {
+    prizeTiers = nextTiers;
+    auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      action: 'Cập nhật cấu hình giải thưởng',
+      details: `Quản trị viên đã cập nhật lại danh sách và số lượng các mức thưởng MoMo`,
+      timestamp: new Date().toISOString(),
+      adminUser: 'Admin Bách Khoa',
+    });
   });
-
-  saveDatabase();
+  if (!committed) return res.status(503).json({ error: 'Không thể lưu cơ cấu giải thưởng an toàn. Vui lòng thử lại.' });
 
   res.json({ success: true, prizeTiers });
 });
