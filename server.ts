@@ -9,6 +9,7 @@ import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 dotenv.config();
 
 const app = express();
+export default app;
 const PORT = process.env.PORT || 3000;
 // Chạy sau reverse proxy (Cloud Run, Nginx...) để req.ip và rate limit đúng
 app.set('trust proxy', 1);
@@ -1342,6 +1343,8 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-});
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+  });
+}

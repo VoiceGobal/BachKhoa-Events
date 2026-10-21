@@ -9,7 +9,7 @@
     },
     {
       "source": "/api/:path*",
-      "destination": "/api/proxy?path=:path*"
+      "destination": "/api/handler?path=:path*"
     },
     {
       "source": "/(.*)",
