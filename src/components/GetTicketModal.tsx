@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mail, Phone, ShieldCheck, Ticket, Sparkles, Building, UserCheck, Copy, Check } from 'lucide-react';
+import { X, Mail, Phone, ShieldCheck, Ticket, Building, UserCheck, Copy, Check } from 'lucide-react';
 import { playSoftPop } from '../utils/audio';
 import { useAuth } from '../context/AuthContext';
 import { useEvent } from '../context/EventContext';
@@ -59,12 +59,6 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
       setCopiedContact(label);
       setTimeout(() => setCopiedContact(''), 2000);
     } catch {}
-  };
-
-  const handleChooseDemo = (code: string) => {
-    onSelectSampleTicket(code);
-    playSoftPop();
-    onClose();
   };
 
   return (
@@ -211,26 +205,6 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* Method 3: Test Sample Tickets */}
-          <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs">
-            <span className="font-bold text-amber-900 dark:text-amber-300 block mb-1.5 flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              <span>Thử nghiệm nhanh (Vé mẫu có sẵn):</span>
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {holidayConfig.sampleTickets.map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  onClick={() => handleChooseDemo(code)}
-                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-stone-900 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-300 dark:border-amber-700 font-mono font-bold text-amber-950 dark:text-amber-200 cursor-pointer transition shadow-2xs"
-                >
-                  {code}
-                </button>
-              ))}
             </div>
           </div>
 

@@ -10,8 +10,8 @@ import {
   GoogleAuthProvider,
   updateProfile,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 
 export interface UserProfile {
   uid: string;
@@ -35,7 +35,6 @@ interface AuthContextType {
   sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
-  decrementUserSpin: () => Promise<number>; // returns updated spins remaining
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -45,16 +44,15 @@ const ADMIN_EMAILS = [
   'tuancuong241298@gmail.com',
   'cuongtt.ptit@gmail.com',
   'admin@bachkhoa.edu.vn',
+  'bksamsong@bachkhoa.edu.vn',
+  ...(import.meta.env.VITE_FIREBASE_ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean),
 ];
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
-
-  const isAdmin = Boolean(
-    currentUser?.email && ADMIN_EMAILS.includes(currentUser.email.toLowerCase().trim())
-  );
 
   const fetchOrCreateProfile = async (user: User, fallbackName?: string) => {
     const userDocRef = doc(db, 'users', user.uid);
@@ -93,9 +91,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        await fetchOrCreateProfile(user);
+        const emailAdmin = Boolean(user.emailVerified && user.email && ADMIN_EMAILS.includes(user.email.toLowerCase().trim()));
+        const [, adminResult] = await Promise.allSettled([
+          fetchOrCreateProfile(user),
+          getDoc(doc(db, 'admins', user.uid)),
+        ]);
+        setIsAdmin(emailAdmin || (adminResult.status === 'fulfilled' && adminResult.value.exists()));
       } else {
         setUserProfile(null);
+        setIsAdmin(false);
       }
       setLoading(false);
     });
@@ -159,43 +163,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     await firebaseSignOut(auth);
     setUserProfile(null);
+    setIsAdmin(false);
   };
 
   const refreshProfile = async () => {
     if (currentUser) {
       await fetchOrCreateProfile(currentUser);
-    }
-  };
-
-  const decrementUserSpin = async (): Promise<number> => {
-    if (!currentUser) throw new Error('Cần đăng nhập để thực hiện lượt quay.');
-    const userDocRef = doc(db, 'users', currentUser.uid);
-
-    const currentSpins = userProfile?.spinsRemaining ?? 3;
-    const currentTotal = userProfile?.totalSpins ?? 0;
-    const nextSpins = Math.max(0, currentSpins - 1);
-    const nextTotal = currentTotal + 1;
-    const nowIso = new Date().toISOString();
-
-    try {
-      await updateDoc(userDocRef, {
-        spinsRemaining: nextSpins,
-        totalSpins: nextTotal,
-        lastSpinAt: nowIso,
-      });
-      setUserProfile((prev) =>
-        prev
-          ? {
-              ...prev,
-              spinsRemaining: nextSpins,
-              totalSpins: nextTotal,
-              lastSpinAt: nowIso,
-            }
-          : null
-      );
-      return nextSpins;
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}`);
     }
   };
 
@@ -213,7 +186,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendPasswordReset,
         signOut,
         refreshProfile,
-        decrementUserSpin,
       }}
     >
       {children}

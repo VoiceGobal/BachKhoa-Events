@@ -24,11 +24,6 @@ import {
 import { MomoPrizeTier, RewardClaim, SpinTicket, AdminAuditLog } from '../types';
 import { playSoftPop, playCelebration } from '../utils/audio';
 import { useAuth } from '../context/AuthContext';
-import {
-  loadFirestoreAdminDashboard,
-  saveFirestoreEventConfig,
-} from '../services/firestoreService';
-import { safeSessionStorage } from '../utils/storage';
 
 interface AdminDashboardModalProps {
   isOpen: boolean;
@@ -38,28 +33,19 @@ interface AdminDashboardModalProps {
 export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen, onClose }) => {
   const { currentUser, isAdmin } = useAuth();
 
-  const [token, setToken] = useState<string>(() => {
-    return safeSessionStorage.getItem('bks_admin_token') || '';
-  });
+  const [token, setToken] = useState('');
 
-  // Auto-authenticate if logged in with Admin email
+  // Admin API calls use short-lived Firebase ID tokens, never a client password token.
   useEffect(() => {
-    if (
-      isOpen &&
-      (isAdmin ||
-        currentUser?.email === 'tuancuongnx@gmail.com' ||
-        currentUser?.email === 'tuancuong241298@gmail.com' ||
-        currentUser?.email === 'admin@bachkhoa.edu.vn')
-    ) {
-      if (!token) {
-        const adminSessionToken = 'admin-auth-session';
-        setToken(adminSessionToken);
-        safeSessionStorage.setItem('bks_admin_token', adminSessionToken);
-      }
+    let active = true;
+    if (isOpen && isAdmin && currentUser) {
+      currentUser.getIdToken().then((idToken) => { if (active) setToken(idToken); }).catch(() => { if (active) setToken(''); });
+    } else {
+      setToken('');
     }
-  }, [isOpen, isAdmin, currentUser, token]);
+    return () => { active = false; };
+  }, [isOpen, isAdmin, currentUser]);
 
-  const [password, setPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -98,51 +84,35 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
   const [editableTiers, setEditableTiers] = useState<MomoPrizeTier[]>([]);
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
 
-  const fetchAdminData = async (adminToken: string) => {
+  const getAdminHeaders = async () => {
+    if (!currentUser || !isAdmin) throw new Error('Hãy đăng nhập bằng tài khoản Firebase được cấp quyền quản trị.');
+    const idToken = await currentUser.getIdToken();
+    setToken(idToken);
+    return { Authorization: `Bearer ${idToken}` };
+  };
+
+  const fetchAdminData = async (_adminToken?: string) => {
     setLoading(true);
-    let loadedFromApi = false;
     try {
       const res = await fetch('/api/admin/event-data', {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: await getAdminHeaders(),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setTotalBudget(data.totalBudget || 0);
-        setRemainingBudget(data.remainingBudget || 0);
-        setAwardedAmount(data.awardedAmount || 0);
-        setPrizeTiers(data.prizeTiers || []);
-        setTickets(data.tickets || []);
-        setClaims(data.claims || []);
-        setAuditLogs(data.auditLogs || []);
-
-        setEditableBudget(data.totalBudget || 500000);
-        setEditableTiers(data.prizeTiers || []);
-        loadedFromApi = true;
-      }
-    } catch {
-      // Backend not running (e.g. deployed on Vercel)
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Không thể tải dữ liệu quản trị.');
+      setTotalBudget(data.totalBudget || 0);
+      setRemainingBudget(data.remainingBudget || 0);
+      setAwardedAmount(data.awardedAmount || 0);
+      setPrizeTiers(data.prizeTiers || []);
+      setTickets(data.tickets || []);
+      setClaims(data.claims || []);
+      setAuditLogs(data.auditLogs || []);
+      setEditableBudget(data.totalBudget || 500000);
+      setEditableTiers(data.prizeTiers || []);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Không thể tải dữ liệu quản trị.');
+    } finally {
+      setLoading(false);
     }
-
-    if (!loadedFromApi) {
-      // Direct Cloud Firestore retrieval
-      try {
-        const data = await loadFirestoreAdminDashboard();
-        setTotalBudget(data.totalBudget);
-        setRemainingBudget(data.remainingBudget);
-        setAwardedAmount(data.awardedAmount);
-        setPrizeTiers(data.prizeTiers);
-        setTickets(data.tickets);
-        setClaims(data.claims);
-        setAuditLogs(data.auditLogs);
-
-        setEditableBudget(data.totalBudget);
-        setEditableTiers(data.prizeTiers);
-      } catch (err) {
-        console.error('Failed to load admin data from Firestore:', err);
-      }
-    }
-
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -153,48 +123,15 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
 
   if (!isOpen) return null;
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async () => {
     setLoginError('');
     setLoading(true);
-
-    const isMatchKnownPass =
-      password.trim() === 'BachKhoa2026@MoMo' ||
-      password.trim() === 'BKSamsong2010@2026' ||
-      password.trim() === 'Admin@2026';
-
     try {
-      let loggedIn = false;
-      try {
-        const res = await fetch('/api/admin/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setToken(data.token);
-          safeSessionStorage.setItem('bks_admin_token', data.token);
-          fetchAdminData(data.token);
-          playCelebration();
-          loggedIn = true;
-        }
-      } catch {
-        // Server unavailable
-      }
-
-      if (!loggedIn && isMatchKnownPass) {
-        const clientToken = `admin-token-${Date.now()}`;
-        setToken(clientToken);
-        safeSessionStorage.setItem('bks_admin_token', clientToken);
-        fetchAdminData(clientToken);
-        playCelebration();
-        loggedIn = true;
-      }
-
-      if (!loggedIn) {
-        throw new Error('Mật khẩu quản trị không đúng hoặc chưa được cấp phép.');
-      }
+      const idToken = await currentUser?.getIdToken();
+      if (!idToken || !isAdmin) throw new Error('Hãy đăng nhập bằng tài khoản Firebase được cấp quyền quản trị.');
+      setToken(idToken);
+      await fetchAdminData(idToken);
+      playCelebration();
     } catch (err: unknown) {
       setLoginError((err as Error).message);
     } finally {
@@ -204,7 +141,6 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
 
   const handleLogout = () => {
     setToken('');
-    safeSessionStorage.removeItem('bks_admin_token');
   };
 
   const handleUpdateClaimStatus = async (
@@ -217,7 +153,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     try {
       const response = await fetch('/api/admin/update-claim', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', ...(await getAdminHeaders()) },
         body: JSON.stringify({ claimCode, newStatus, ...extra }),
       });
       const result = await response.json();
@@ -241,7 +177,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     try {
       const response = await fetch('/api/admin/generate-tickets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', ...(await getAdminHeaders()) },
         body: JSON.stringify({ count: newTicketCount, occasion: newTicketOccasion }),
       });
       const result = await response.json();
@@ -264,7 +200,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     try {
       const response = await fetch('/api/admin/delete-ticket', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', ...(await getAdminHeaders()) },
         body: JSON.stringify({ code }),
       });
       const result = await response.json();
@@ -292,22 +228,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     setActionError('');
     setSavingSettings(true);
     try {
-      // 1. Save directly to Cloud Firestore
-      await saveFirestoreEventConfig({ totalBudget: Number(editableBudget) });
-
-      // 2. Also sync to server endpoint if running
-      try {
-        await fetch('/api/admin/update-budget', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ totalBudget: Number(editableBudget) }),
-        });
-      } catch {
-        // Optional on Vercel
-      }
+      const response = await fetch('/api/admin/update-budget', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAdminHeaders()) },
+        body: JSON.stringify({ totalBudget: Number(editableBudget) }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Không thể cập nhật ngân sách.');
 
       setActionSuccess(`Đã cập nhật ngân sách sự kiện thành ${Number(editableBudget).toLocaleString('vi-VN')}đ vào Cloud Firestore!`);
       fetchAdminData(token || 'admin');
@@ -326,7 +253,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     try {
       const response = await fetch('/api/admin/update-prize-pool', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', ...(await getAdminHeaders()) },
         body: JSON.stringify({ tiers: editableTiers }),
       });
       const result = await response.json();
@@ -355,8 +282,8 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
       ...prev,
       {
         id: `tier-custom-${Date.now()}`,
-        amount: 30000,
-        label: '30.000đ',
+        amount: 10000,
+        label: '10.000đ',
         totalQuantity: 5,
         remainingQuantity: 5,
         color: '#FDF2F8',
@@ -369,13 +296,26 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
     setEditableTiers((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const handleExportClaimsCSV = () => {
-    window.open('/api/admin/export-csv', '_blank');
+  const downloadAdminCsv = async (path: string) => {
+    try {
+      const response = await fetch(path, { headers: await getAdminHeaders() });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Không thể xuất dữ liệu.');
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = path.endsWith('export-tickets') ? 'danh-sach-ve.csv' : 'danh-sach-nhan-thuong.csv';
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Không thể xuất dữ liệu.');
+    }
   };
 
-  const handleExportTicketsCSV = () => {
-    window.open('/api/admin/export-tickets', '_blank');
-  };
+  const handleExportClaimsCSV = () => { void downloadAdminCsv('/api/admin/export-csv'); };
+  const handleExportTicketsCSV = () => { void downloadAdminCsv('/api/admin/export-tickets'); };
 
   // Filtered Claims
   const filteredClaims = claims.filter((c) => {
@@ -500,35 +440,23 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({ isOpen
               Xác Thực Quyền Quản Trị
             </h4>
             <p className="text-xs text-stone-500 dark:text-stone-400 mb-6">
-              Khu vực bảo mật dành riêng cho Ban Giám Hiệu và Ban Tổ Chức Trường Trung cấp Công nghiệp Bách Khoa Sầm Sơn – Thanh Hóa.
+              Hãy đăng nhập website bằng tài khoản Firebase đã được cấp quyền quản trị. Mật khẩu nhập tại trình duyệt không thể tự cấp quyền quản trị.
             </p>
 
-            <form onSubmit={handleLogin} className="w-full space-y-4">
-              <div>
-                <input
-                  type="password"
-                  placeholder="Nhập mật khẩu quản trị"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
-                  autoFocus
-                />
+            {loginError && (
+              <div className="mb-4 p-2.5 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs">
+                {loginError}
               </div>
+            )}
 
-              {loginError && (
-                <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs">
-                  {loginError}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading || !password}
-                className="w-full py-3 px-4 bg-purple-700 hover:bg-purple-800 text-white rounded-2xl text-xs font-bold uppercase tracking-wider transition shadow-md disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? 'Đang xác thực...' : 'Đăng Nhập Quản Trị'}
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={() => void handleLogin()}
+              disabled={loading || !isAdmin || !currentUser}
+              className="w-full py-3 px-4 bg-purple-700 hover:bg-purple-800 text-white rounded-2xl text-xs font-bold uppercase tracking-wider transition shadow-md disabled:opacity-50 cursor-pointer"
+            >
+              {loading ? 'Đang xác thực...' : isAdmin ? 'Xác nhận quyền quản trị' : 'Đăng nhập tài khoản quản trị trước'}
+            </button>
           </div>
         ) : (
           /* Main Admin Panel */

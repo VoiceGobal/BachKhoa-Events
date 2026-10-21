@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, History, Gift, Trophy, Clock, CheckCircle2, AlertCircle, Copy, Check, ExternalLink } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 
 interface SpinHistoryItem {
@@ -20,7 +20,7 @@ interface ClaimItem {
   amount: number;
   fullName: string;
   momoPhone: string;
-  status: 'pending' | 'verified' | 'transferred' | 'rejected';
+  status: 'unclaimed' | 'pending' | 'pending_verification' | 'verified' | 'pending_transfer' | 'transferred' | 'rejected';
   adminNote?: string;
   transactionRef?: string;
   createdAt: string;
@@ -285,7 +285,9 @@ export const UserHistoryModal: React.FC<UserHistoryModalProps> = ({
                       {claim.status === 'transferred' && '✓ Đã chuyển quà MoMo'}
                       {claim.status === 'verified' && '✓ Đã xác thực'}
                       {claim.status === 'rejected' && '✕ Từ chối'}
-                      {claim.status === 'pending' && '⏳ Chờ ban tổ chức duyệt'}
+                      {(claim.status === 'pending' || claim.status === 'pending_verification') && '⏳ Chờ ban tổ chức duyệt'}
+                      {claim.status === 'pending_transfer' && '⏳ Chờ chuyển MoMo'}
+                      {claim.status === 'unclaimed' && 'Chưa gửi thông tin nhận thưởng'}
                     </span>
                   </div>
 

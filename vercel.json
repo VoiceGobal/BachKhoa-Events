@@ -3,18 +3,9 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "functions": {
-    "api/router.ts": {
-      "includeFiles": "firebase-applet-config.json"
+    "api/**/*.ts": {
+      "maxDuration": 30
     }
   },
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "/api/router?path=:path*"
-    },
-    {
-      "source": "/:path((?!api/).*)",
-      "destination": "/index.html"
-    }
-  ]
+  "rewrites": [{ "source": "/:path((?!api/).*)", "destination": "/index.html" }]
 }

@@ -25,13 +25,7 @@ import { playWheelTick, playSuspensePulse, playCelebration, playSoftPop } from '
 import { triggerConfetti } from '../utils/confetti';
 import { useAuth } from '../context/AuthContext';
 import { useEvent, HolidayId } from '../context/EventContext';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
 import { GetTicketModal } from './GetTicketModal';
-import {
-  getFirestoreEventConfig,
-  getFirestoreTickets,
-} from '../services/firestoreService';
 
 interface LuckyWheelProps {
   onOpenCardWithWish: (title: string, message: string, recipient: string) => void;
@@ -99,7 +93,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
   onOpenAuthModal,
   onOpenHistoryModal,
 }) => {
-  const { currentUser, userProfile, decrementUserSpin } = useAuth();
+  const { currentUser, userProfile, refreshProfile } = useAuth();
   const { activeHoliday, holidayConfig } = useEvent();
 
   const slices = getHolidaySlices(activeHoliday);
@@ -151,7 +145,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
   const wheelRef = useRef<HTMLDivElement | null>(null);
   const spinTimeoutsRef = useRef<number[]>([]);
 
-  // Fetch event info and sample available tickets with Firestore fallback (works on Vercel)
+  // The API is the only source for prize inventory and ticket availability.
   useEffect(() => {
     fetch('/api/event/info')
       .then((res) => {
@@ -166,11 +160,9 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           setTotalBudget(data.totalBudget);
         }
       })
-      .catch(async () => {
-        // Fallback directly to Cloud Firestore
-        const cfg = await getFirestoreEventConfig();
-        setRemainingPrizesCount(cfg.remainingPrizes);
-        setTotalBudget(cfg.totalBudget);
+      .catch(() => {
+        setRemainingPrizesCount(0);
+        setTotalBudget(0);
       });
 
     // Fetch active sample tickets for the current holiday
@@ -179,24 +171,8 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
         if (!res.ok) throw new Error('API unavailable');
         return res.json();
       })
-      .then((data) => {
-        if (data?.tickets?.length) {
-          setPublicTickets(data.tickets);
-        } else {
-          setPublicTickets(holidayConfig.sampleTickets);
-        }
-      })
-      .catch(async () => {
-        const firestoreTickets = await getFirestoreTickets();
-        const matching = firestoreTickets
-          .filter((t) => !t.isUsed && t.code.startsWith(holidayConfig.ticketPrefix))
-          .map((t) => t.code);
-        if (matching.length > 0) {
-          setPublicTickets(matching.slice(0, 10));
-        } else {
-          setPublicTickets(holidayConfig.sampleTickets);
-        }
-      });
+      .then(() => setPublicTickets([]))
+      .catch(() => setPublicTickets([]));
   }, [activeHoliday, holidayConfig]);
 
   // Cleanup audio/animation timers on unmount
@@ -285,9 +261,11 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       let isDemoResult = forceDemo;
 
       if (hasTicket || forceDemo) {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (currentUser) headers.Authorization = `Bearer ${await currentUser.getIdToken()}`;
         const res = await fetch('/api/spin/play', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ ticketCode: ticketInput.trim(), isDemo: forceDemo }),
         });
         const data = await res.json();
@@ -324,11 +302,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
         subLabel = slices[targetIndex].subLabel;
         wishMessage = data.wishMessage || slices[targetIndex].wish;
         prizeAmount = 0;
-        try {
-          await decrementUserSpin();
-        } catch (err) {
-          console.warn('Could not sync spin count to profile:', err);
-        }
+        await refreshProfile();
       }
 
       // Mathematical rotation alignment (needle at 12 o'clock, 0 degrees)
@@ -377,29 +351,6 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           isDemo: isDemoResult,
         };
         setWinningData(resultObj);
-
-        // Record spin into Cloud Firestore if logged in
-        if (currentUser && !isDemoResult) {
-          try {
-            const spinId = `spin-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            const spinDocRef = doc(db, 'spins', spinId);
-            await setDoc(spinDocRef, {
-              id: spinId,
-              userId: currentUser.uid,
-              userEmail: currentUser.email || '',
-              segmentIndex: targetIndex,
-              label,
-              wishMessage,
-              prizeAmount,
-              isCashPrize: prizeAmount > 0,
-              claimCode: claimCode || '',
-              claimed: false,
-              createdAt: new Date().toISOString(),
-            });
-          } catch (fireErr) {
-            console.warn('Could not save spin record to Firestore:', fireErr);
-          }
-        }
 
         playCelebration();
         triggerConfetti();
