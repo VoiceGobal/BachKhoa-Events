@@ -13,7 +13,18 @@ export async function proxyApiRequest(req: VercelRequest, res: ServerResponse) {
   }
 
   try {
-    const url = new URL(req.url || '/api', `${apiOrigin}/`);
+    const requestUrl = new URL(req.url || '/', 'http://vercel.internal');
+    const apiPath = requestUrl.searchParams.get('path');
+    if (!apiPath) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ error: 'Thiếu đường dẫn API cần chuyển tiếp.' }));
+      return;
+    }
+    requestUrl.searchParams.delete('path');
+    const upstreamUrl = new URL(`/api/${apiPath.replace(/^\/+/, '')}`, `${apiOrigin}/`);
+    upstreamUrl.search = requestUrl.searchParams.toString();
+
     const headers = new Headers();
     for (const name of ['content-type', 'x-firebase-id-token', 'authorization']) {
       const value = req.headers[name];
@@ -21,7 +32,7 @@ export async function proxyApiRequest(req: VercelRequest, res: ServerResponse) {
     }
 
     const method = req.method || 'GET';
-    const response = await fetch(url, {
+    const response = await fetch(upstreamUrl, {
       method,
       headers,
       body: method === 'GET' || method === 'HEAD'

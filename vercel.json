@@ -1,5 +1,19 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/favicon.ico",
+      "destination": "/favicon.svg"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/proxy?path=:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
