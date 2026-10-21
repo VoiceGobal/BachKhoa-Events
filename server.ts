@@ -409,7 +409,9 @@ function generateSecureTicketCode(prefix: string): string {
 // ==========================================
 // PERSISTENT DATABASE ENGINE (CSDL)
 // ==========================================
-const DATA_DIR = path.resolve(process.env.DATA_DIR || 'data');
+const DATA_DIR = path.resolve(
+  process.env.DATA_DIR || (process.env.VERCEL ? path.join('/tmp', 'bachkhoa-events') : 'data')
+);
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 
 function saveDatabase(): boolean {
@@ -1373,6 +1375,12 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-});
+// Vercel invokes the Express app through api/[...path].ts. Starting a listener
+// there would create a detached server instead of handling the function request.
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+  });
+}
+
+export default app;
