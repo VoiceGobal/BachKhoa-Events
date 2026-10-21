@@ -9,7 +9,6 @@ import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 dotenv.config();
 
 const app = express();
-export default app;
 const PORT = process.env.PORT || 3000;
 // Chạy sau reverse proxy (Cloud Run, Nginx...) để req.ip và rate limit đúng
 app.set('trust proxy', 1);
@@ -794,26 +793,22 @@ app.post('/api/spin/play', (req: Request, res: Response) => {
   // Filter tiers with remaining prizes
   const availableTiers = prizeTiers.filter((t) => t.remainingQuantity > 0);
 
-  if (availableTiers.length === 0 || crypto.randomInt(100) >= 55) {
-    // Spend the ticket for a non-cash result when no cash inventory remains or the cash roll misses.
+  if (availableTiers.length === 0) {
+    // All cash prizes have been awarded!
     ticket.isUsed = true;
     ticket.usedAt = new Date().toISOString();
     ticket.prizeWon = 0;
     saveDatabase();
-
-    const wishSlices = UNIFIED_SLICES.filter((slice) => !slice.isCash);
-    const wishSlice = wishSlices[crypto.randomInt(wishSlices.length)];
 
     return res.json({
       success: true,
       isDemo: false,
       isCashPrize: false,
       prizeAmount: 0,
-      label: wishSlice.label,
-      segmentIndex: wishSlice.index,
-      wishMessage: availableTiers.length === 0
-        ? 'Toàn bộ ngân sách giải thưởng tiền mặt MoMo của sự kiện đã được trao hết. Bạn nhận được món quà tinh thần đặc biệt: Một lời tri ân chân thành nhất từ ban tổ chức!'
-        : wishSlice.wish,
+      label: 'Tri Ân 20/10',
+      segmentIndex: 7,
+      wishMessage:
+        'Toàn bộ ngân sách giải thưởng tiền mặt MoMo của sự kiện đã được trao hết. Bạn nhận được món quà tinh thần đặc biệt: Một lời tri ân chân thành nhất từ ban tổ chức!',
       ticketCode: cleanCode,
     });
   }
@@ -1343,8 +1338,6 @@ async function startServer() {
   });
 }
 
-if (!process.env.VERCEL) {
-  startServer().catch((err) => {
-    console.error('Failed to start server:', err);
-  });
-}
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+});

@@ -4,14 +4,6 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/favicon.ico",
-      "destination": "/favicon.svg"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "/api/handler?path=:path*"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

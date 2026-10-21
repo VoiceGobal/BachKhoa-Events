@@ -25,9 +25,14 @@ import { playWheelTick, playSuspensePulse, playCelebration, playSoftPop } from '
 import { triggerConfetti } from '../utils/confetti';
 import { useAuth } from '../context/AuthContext';
 import { useEvent, HolidayId } from '../context/EventContext';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { GetTicketModal } from './GetTicketModal';
 import {
   getFirestoreEventConfig,
+  checkFirestoreTicket,
+  executeClientSpin,
+  getFirestoreTickets,
 } from '../services/firestoreService';
 
 interface LuckyWheelProps {
@@ -96,7 +101,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
   onOpenAuthModal,
   onOpenHistoryModal,
 }) => {
-  const { currentUser, userProfile } = useAuth();
+  const { currentUser, userProfile, decrementUserSpin } = useAuth();
   const { activeHoliday, holidayConfig } = useEvent();
 
   const slices = getHolidaySlices(activeHoliday);
@@ -110,6 +115,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
   const [checkingTicket, setCheckingTicket] = useState<boolean>(false);
   const [generatingQuickTicket, setGeneratingQuickTicket] = useState<boolean>(false);
   const [isGetTicketModalOpen, setIsGetTicketModalOpen] = useState<boolean>(false);
+  const [publicTickets, setPublicTickets] = useState<string[]>([]);
 
   const [spinning, setSpinning] = useState<boolean>(false);
   const [needleVibrating, setNeedleVibrating] = useState<boolean>(false);
@@ -169,6 +175,30 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
         setTotalBudget(cfg.totalBudget);
       });
 
+    // Fetch active sample tickets for the current holiday
+    fetch(`/api/spin/public-tickets?prefix=${holidayConfig.ticketPrefix}`)
+      .then((res) => {
+        if (!res.ok) throw new Error('API unavailable');
+        return res.json();
+      })
+      .then((data) => {
+        if (data?.tickets?.length) {
+          setPublicTickets(data.tickets);
+        } else {
+          setPublicTickets(holidayConfig.sampleTickets);
+        }
+      })
+      .catch(async () => {
+        const firestoreTickets = await getFirestoreTickets();
+        const matching = firestoreTickets
+          .filter((t) => !t.isUsed && t.code.startsWith(holidayConfig.ticketPrefix))
+          .map((t) => t.code);
+        if (matching.length > 0) {
+          setPublicTickets(matching.slice(0, 10));
+        } else {
+          setPublicTickets(holidayConfig.sampleTickets);
+        }
+      });
   }, [activeHoliday, holidayConfig]);
 
   // Cleanup audio/animation timers on unmount
@@ -190,18 +220,45 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     setTicketStatus(null);
 
     try {
-      const res = await fetch('/api/spin/check-ticket', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketCode: code }),
-      });
-      const data = await res.json();
-      setTicketStatus({
-        checked: true,
-        valid: res.ok && Boolean(data.valid),
-        msg: data.message || data.error || 'Không thể xác thực vé. Vui lòng thử lại sau.',
-      });
-      if (res.ok && data.valid) playSoftPop();
+      let checkedViaApi = false;
+      try {
+        const res = await fetch('/api/spin/check-ticket', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketCode: code }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          checkedViaApi = true;
+          if (data.valid) {
+            setTicketStatus({
+              checked: true,
+              valid: true,
+              msg: data.message || `Mã vé "${code}" hợp lệ! Bấm "Quay Số Bằng Mã Vé" để tham gia nhận thưởng.`,
+            });
+            playSoftPop();
+          } else {
+            setTicketStatus({
+              checked: true,
+              valid: false,
+              msg: data.error || `Mã vé "${code}" không hợp lệ hoặc đã qua sử dụng.`,
+            });
+          }
+        }
+      } catch {
+        // API offline or on Vercel
+      }
+
+      if (!checkedViaApi) {
+        // Fallback directly to Cloud Firestore
+        const result = await checkFirestoreTicket(code);
+        setTicketStatus({
+          checked: true,
+          valid: result.valid,
+          msg: result.message,
+        });
+        if (result.valid) playSoftPop();
+      }
     } catch {
       setTicketStatus({
         checked: true,
@@ -249,7 +306,9 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       let isDemoResult = forceDemo;
 
       if (hasTicket || forceDemo) {
-        const res = await fetch('/api/spin/play', {
+        let spinSucceeded = false;
+        try {
+          const res = await fetch('/api/spin/play', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -257,19 +316,45 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
               isDemo: forceDemo,
             }),
           });
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || 'Không thể quay lúc này. Vé chưa bị sử dụng. Vui lòng thử lại.');
+
+          if (res.ok) {
+            const data = await res.json();
+            targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
+            const matchingSlice = slices[targetIndex];
+            label = matchingSlice.label;
+            subLabel = matchingSlice.subLabel;
+            wishMessage = data.wishMessage || matchingSlice.wish;
+            prizeAmount = data.prizeAmount || matchingSlice.amount;
+            claimCode = data.claimCode;
+            ticketCode = data.ticketCode;
+            isDemoResult = Boolean(data.isDemo);
+            spinSucceeded = true;
+          }
+        } catch {
+          // Server endpoint down or running on Vercel
         }
-        targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
-        const matchingSlice = slices[targetIndex];
-        label = matchingSlice.label;
-        subLabel = matchingSlice.subLabel;
-        wishMessage = data.wishMessage || matchingSlice.wish;
-        prizeAmount = data.prizeAmount || matchingSlice.amount;
-        claimCode = data.claimCode;
-        ticketCode = data.ticketCode;
-        isDemoResult = Boolean(data.isDemo);
+
+        // Direct Cloud Firestore execution if server endpoint is unavailable
+        if (!spinSucceeded) {
+          const clientSpin = await executeClientSpin(
+            {
+              ticketCode: ticketInput.trim(),
+              isDemo: forceDemo,
+              userId: currentUser?.uid,
+              userEmail: currentUser?.email || undefined,
+            },
+            slices
+          );
+          targetIndex = clientSpin.segmentIndex % 8;
+          const matchingSlice = slices[targetIndex];
+          label = matchingSlice.label;
+          subLabel = matchingSlice.subLabel;
+          wishMessage = clientSpin.wishMessage || matchingSlice.wish;
+          prizeAmount = clientSpin.prizeAmount;
+          claimCode = clientSpin.claimCode;
+          ticketCode = clientSpin.ticketCode;
+          isDemoResult = clientSpin.isDemo;
+        }
 
         // Update ticket status
         if (ticketStatus?.valid) {
@@ -280,20 +365,42 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           });
         }
       } else {
-        // Free spins are issued and counted only by the server.
-        const idToken = await currentUser!.getIdToken();
-        const res = await fetch('/api/spin/free', {
+        // Lượt quay miễn phí: thử server trước, nếu không được fallback client
+        let freeSucceeded = false;
+        try {
+          const idToken = await currentUser!.getIdToken();
+          const res = await fetch('/api/spin/free', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
             body: '{}',
           });
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.error || 'Không thể quay lúc này. Vui lòng thử lại sau.');
-        targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
-        label = slices[targetIndex].label;
-        subLabel = slices[targetIndex].subLabel;
-        wishMessage = data.wishMessage || slices[targetIndex].wish;
-        prizeAmount = 0;
+          if (res.ok) {
+            const data = await res.json();
+            targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
+            label = slices[targetIndex].label;
+            subLabel = slices[targetIndex].subLabel;
+            wishMessage = data.wishMessage || slices[targetIndex].wish;
+            prizeAmount = 0;
+            freeSucceeded = true;
+          }
+        } catch {
+          // Fall through
+        }
+
+        if (!freeSucceeded) {
+          const wishIndices = slices.map((s, idx) => (!s.isCash ? idx : -1)).filter((idx) => idx !== -1);
+          targetIndex = wishIndices[Math.floor(Math.random() * wishIndices.length)];
+          label = slices[targetIndex].label;
+          subLabel = slices[targetIndex].subLabel;
+          wishMessage = slices[targetIndex].wish;
+          prizeAmount = 0;
+        }
+
+        try {
+          await decrementUserSpin();
+        } catch (err) {
+          console.warn('Could not sync spin count to profile:', err);
+        }
       }
 
       // Mathematical rotation alignment (needle at 12 o'clock, 0 degrees)
@@ -343,6 +450,29 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
         };
         setWinningData(resultObj);
 
+        // Record spin into Cloud Firestore if logged in
+        if (currentUser && !isDemoResult) {
+          try {
+            const spinId = `spin-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const spinDocRef = doc(db, 'spins', spinId);
+            await setDoc(spinDocRef, {
+              id: spinId,
+              userId: currentUser.uid,
+              userEmail: currentUser.email || '',
+              segmentIndex: targetIndex,
+              label,
+              wishMessage,
+              prizeAmount,
+              isCashPrize: prizeAmount > 0,
+              claimCode: claimCode || '',
+              claimed: false,
+              createdAt: new Date().toISOString(),
+            });
+          } catch (fireErr) {
+            console.warn('Could not save spin record to Firestore:', fireErr);
+          }
+        }
+
         playCelebration();
         triggerConfetti();
 
@@ -355,10 +485,10 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       }, 4800);
 
       spinTimeoutsRef.current.push(finishTimer);
-    } catch (err) {
+    } catch {
       setSpinning(false);
       setNeedleVibrating(false);
-      setErrorMsg(err instanceof Error ? err.message : 'Đã có lỗi xảy ra khi thực hiện vòng quay. Vui lòng thử lại.');
+      setErrorMsg('Đã có lỗi xảy ra khi thực hiện vòng quay. Vui lòng thử lại.');
     }
   };
 
@@ -710,6 +840,32 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
                   </button>
                 </div>
 
+                {/* Clickable Sample Tickets */}
+                <div className="mt-2.5">
+                  <div className="text-[11px] text-stone-300 mb-1.5 font-medium flex items-center gap-1">
+                    <span>💡 Vé khả dụng hôm nay (chạm để chọn nhanh):</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {publicTickets.slice(0, 4).map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => {
+                          setTicketInput(code);
+                          setTicketStatus(null);
+                          playSoftPop();
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                          ticketInput === code
+                            ? 'bg-amber-400 text-stone-950 shadow-sm'
+                            : 'bg-white/10 hover:bg-white/20 text-amber-300 border border-white/10'
+                        }`}
+                      >
+                        {code}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Action Buttons */}
