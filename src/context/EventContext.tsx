@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { InteractiveObject } from '../types';
+import { safeLocalStorage } from '../utils/storage';
 
 // Asset imports
 import heroWomenDay from '../assets/images/bk_2010_celebration_1792479981730.jpg';
@@ -71,7 +72,7 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'friend_f', label: 'Bạn thân / Bạn học', defaultPronoun: 'Mình - Bạn' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: [],
+    sampleTickets: ['PN8K2M9X', 'PN7T4V1B', 'PN9Q3W6Z', 'PN5L8R2Y'],
     interactiveItems: [
       {
         id: 'item-flower',
@@ -165,7 +166,7 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'colleague_edu', label: 'Đồng nghiệp ngành Sư phạm', defaultPronoun: 'Tôi - Thầy/Cô' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: [],
+    sampleTickets: ['NG8B4K2Z', 'NG3V7M1X', 'NG9R2P5Q', 'NG6T8L4W'],
     interactiveItems: [
       {
         id: 'item-book',
@@ -258,7 +259,7 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'friend_f', label: 'Bạn bè phái nữ', defaultPronoun: 'Mình - Bạn' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: [],
+    sampleTickets: ['Q89L2T7K', 'Q83M6V1P', 'Q87R4X9Z', 'Q85B8N2W'],
     interactiveItems: [
       {
         id: 'item-tulip',
@@ -350,7 +351,7 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'friends', label: 'Bạn bè & Tri kỷ', defaultPronoun: 'Mình - Bạn' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: [],
+    sampleTickets: ['TT6N2K9R', 'TT8M4P1Z', 'TT3V7X5Q', 'TT9L2B8W'],
     interactiveItems: [
       {
         id: 'item-blossom',
@@ -442,7 +443,7 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'crush', label: 'Người thương thầm (Crush)', defaultPronoun: 'Mình - Bạn' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: [],
+    sampleTickets: ['VL8K4R2Y', 'VL3M9P1X', 'VL7T2W5Z', 'VL5Q8N6B'],
     interactiveItems: [
       {
         id: 'item-rose',
@@ -519,30 +520,38 @@ const EventContext = createContext<EventContextType | undefined>(undefined);
 
 export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeHoliday, setActiveHolidayState] = useState<HolidayId>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('active_holiday') as HolidayId;
-      if (saved && HOLIDAYS_MAP[saved]) return saved;
-      // Check URL query or hash
-      const params = new URLSearchParams(window.location.search);
-      const eventParam = params.get('event') as HolidayId;
-      if (eventParam && HOLIDAYS_MAP[eventParam]) return eventParam;
-      if (window.location.hash.includes('20-11') || window.location.hash.includes('thay-co')) return '20-11';
-      if (window.location.hash.includes('tet')) return 'tet';
-      if (window.location.hash.includes('08-03') || window.location.hash.includes('8-3')) return '08-03';
+    try {
+      if (typeof window !== 'undefined') {
+        const saved = safeLocalStorage.getItem('active_holiday') as HolidayId;
+        if (saved && HOLIDAYS_MAP[saved]) return saved;
+        // Check URL query or hash
+        const params = new URLSearchParams(window.location.search);
+        const eventParam = params.get('event') as HolidayId;
+        if (eventParam && HOLIDAYS_MAP[eventParam]) return eventParam;
+        if (window.location.hash.includes('20-11') || window.location.hash.includes('thay-co')) return '20-11';
+        if (window.location.hash.includes('tet')) return 'tet';
+        if (window.location.hash.includes('08-03') || window.location.hash.includes('8-3')) return '08-03';
+      }
+    } catch {
+      // Fallback
     }
     return '20-10'; // Default 20/10 as requested
   });
 
   const setActiveHoliday = (holiday: HolidayId) => {
     setActiveHolidayState(holiday);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('active_holiday', holiday);
+    try {
+      safeLocalStorage.setItem('active_holiday', holiday);
+    } catch {
+      // Ignore
     }
   };
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('active_holiday', activeHoliday);
+    try {
+      safeLocalStorage.setItem('active_holiday', activeHoliday);
+    } catch {
+      // Ignore
     }
   }, [activeHoliday]);
 

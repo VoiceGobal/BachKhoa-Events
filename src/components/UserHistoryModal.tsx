@@ -88,6 +88,16 @@ export const UserHistoryModal: React.FC<UserHistoryModalProps> = ({
     loadData();
   }, [isOpen, currentUser]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleCopy = (code: string) => {
@@ -97,11 +107,15 @@ export const UserHistoryModal: React.FC<UserHistoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-sm animate-fadeIn"
+      onClick={onClose}
+    >
       <div
-        className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border-2 border-rose-200 overflow-hidden flex flex-col max-h-[88vh]"
-        role="dialog"
-        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-2xl bg-white dark:bg-stone-900 rounded-3xl shadow-2xl border-2 border-rose-200 dark:border-rose-900 overflow-hidden flex flex-col max-h-[88vh]"
       >
         {/* Header */}
         <div className="relative bg-gradient-to-r from-purple-800 via-rose-700 to-amber-600 p-6 text-white flex justify-between items-center">

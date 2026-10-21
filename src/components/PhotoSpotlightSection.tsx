@@ -84,7 +84,14 @@ export const PhotoSpotlightSection: React.FC = () => {
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
   const [heartsCount, setHeartsCount] = useState<{ [key: string]: number }>(() => {
-    return { aodai: 142, mother: 285, teachers: 196 };
+    return {
+      'bk-2010-stage': 248,
+      'bk-teachers': 312,
+      'bk-campus-students': 195,
+      'teachers-2011': 286,
+      'mother-love': 354,
+      'spring-tet': 228,
+    };
   });
   const [hasLiked, setHasLiked] = useState<{ [key: string]: boolean }>({});
 
@@ -97,7 +104,7 @@ export const PhotoSpotlightSection: React.FC = () => {
     return () => clearInterval(timer);
   }, [isPaused, lightboxOpen]);
 
-  const currentSlide = SPOTLIGHT_SLIDES[currentIndex];
+  const currentSlide = SPOTLIGHT_SLIDES[currentIndex] || SPOTLIGHT_SLIDES[0];
 
   const handlePrev = () => {
     playSoftPop();
@@ -115,7 +122,7 @@ export const PhotoSpotlightSection: React.FC = () => {
       const nextLiked = !prev[id];
       setHeartsCount((h) => ({
         ...h,
-        [id]: h[id] + (nextLiked ? 1 : -1),
+        [id]: (h[id] || 200) + (nextLiked ? 1 : -1),
       }));
       return { ...prev, [id]: nextLiked };
     });
@@ -188,7 +195,7 @@ export const PhotoSpotlightSection: React.FC = () => {
                 <Heart
                   className={`w-4 h-4 ${hasLiked[currentSlide.id] ? 'fill-white' : ''}`}
                 />
-                <span>{heartsCount[currentSlide.id]}</span>
+                <span>{heartsCount[currentSlide.id] || 200}</span>
               </button>
 
               {/* Expand Lightbox */}

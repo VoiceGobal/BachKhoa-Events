@@ -55,7 +55,7 @@ export const InteractiveItemsSection: React.FC = () => {
     }
   };
 
-  const currentItems = holidayConfig.interactiveItems;
+  const currentItems = holidayConfig?.interactiveItems || [];
 
   return (
     <section id="interactive" className="py-16 bg-gradient-to-b from-white via-rose-50/40 to-white dark:from-stone-950 dark:via-stone-900/40 dark:to-stone-950 relative">

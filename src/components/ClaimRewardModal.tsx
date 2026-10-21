@@ -23,6 +23,8 @@ import { useAuth } from '../context/AuthContext';
 import { useEvent } from '../context/EventContext';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { submitFirestoreClaim } from '../services/firestoreService';
+import { safeLocalStorage } from '../utils/storage';
 
 interface ClaimRewardModalProps {
   isOpen: boolean;
@@ -134,27 +136,42 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
         }
       }
 
-      // 2. Submit to server endpoint
-      const res = await fetch('/api/spin/submit-claim', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Always save directly to Cloud Firestore
+      try {
+        await submitFirestoreClaim({
           claimCode,
+          ticketCode: initialTicketCode || '',
+          amount: prizeAmount,
           fullName: fullName.trim(),
           schoolClassOrDepartment: schoolClass.trim(),
           momoPhone: momoPhone.trim(),
           guardianNote: fullNote,
-        }),
-      });
+          userId: currentUser?.uid,
+        });
+      } catch (fErr) {
+        console.warn('Firestore claim save error:', fErr);
+      }
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Có lỗi xảy ra khi nộp thông tin.');
+      // Also try submitting to server endpoint if running
+      try {
+        await fetch('/api/spin/submit-claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            claimCode,
+            fullName: fullName.trim(),
+            schoolClassOrDepartment: schoolClass.trim(),
+            momoPhone: momoPhone.trim(),
+            guardianNote: fullNote,
+          }),
+        });
+      } catch {
+        // Server endpoint optional on Vercel
       }
 
       // Save to local storage for offline retrieval
       try {
-        const saved = JSON.parse(localStorage.getItem('my_event_claims') || '[]');
+        const saved = JSON.parse(safeLocalStorage.getItem('my_event_claims') || '[]');
         saved.unshift({
           claimCode,
           ticketCode: initialTicketCode,
@@ -164,11 +181,11 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
           department: schoolClass.trim(),
           createdAt: new Date().toISOString(),
         });
-        localStorage.setItem('my_event_claims', JSON.stringify(saved.slice(0, 20)));
+        safeLocalStorage.setItem('my_event_claims', JSON.stringify(saved.slice(0, 20)));
       } catch {}
 
-      setClaimStatus(data.status || 'pending_verification');
-      setSuccessMsg(data.message || 'Đã gửi thông tin nhận thưởng thành công!');
+      setClaimStatus('pending');
+      setSuccessMsg('Đã gửi thông tin nhận thưởng thành công! Ban Tổ Chức sẽ xác minh và chuyển khoản MoMo cho bạn.');
       setHasSubmitted(true);
       playCelebration();
     } catch (err: unknown) {

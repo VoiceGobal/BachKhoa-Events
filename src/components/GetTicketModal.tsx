@@ -3,6 +3,9 @@ import { X, Mail, Phone, ShieldCheck, Ticket, Sparkles, Building, UserCheck, Cop
 import { playSoftPop } from '../utils/audio';
 import { useAuth } from '../context/AuthContext';
 import { useEvent } from '../context/EventContext';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { generateTicketCode } from '../services/firestoreService';
 
 interface GetTicketModalProps {
   isOpen: boolean;
@@ -28,18 +31,37 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
     setClaiming(true);
     setClaimError('');
     try {
-      const idToken = await currentUser.getIdToken();
-      const res = await fetch('/api/spin/claim-ticket', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
-        body: JSON.stringify({ occasion: holidayConfig.ticketPrefix }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ticketCode) {
-        setClaimError(data.error || 'Không thể cấp vé lúc này.');
-        return;
+      let ticketCode = '';
+      try {
+        const idToken = await currentUser.getIdToken();
+        const res = await fetch('/api/spin/claim-ticket', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
+          body: JSON.stringify({ occasion: holidayConfig.ticketPrefix }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ticketCode) ticketCode = data.ticketCode;
+        }
+      } catch {
+        // Fallback for Vercel
       }
-      onSelectSampleTicket(data.ticketCode);
+
+      if (!ticketCode) {
+        // Generate and record in Cloud Firestore directly
+        ticketCode = generateTicketCode(holidayConfig.ticketPrefix);
+        const ticketRef = doc(db, 'tickets', ticketCode);
+        await setDoc(ticketRef, {
+          code: ticketCode,
+          occasion: holidayConfig.ticketPrefix,
+          isUsed: false,
+          createdAt: new Date().toISOString(),
+          claimedBy: currentUser.uid,
+          userEmail: currentUser.email || '',
+        });
+      }
+
+      onSelectSampleTicket(ticketCode);
       playSoftPop();
       onClose();
     } catch {

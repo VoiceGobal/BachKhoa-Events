@@ -52,10 +52,10 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectWishForCard })
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
-        {/* Quick Holiday Switcher Bar */}
+        {/* Quick Holiday Switcher Bar - Responsive on all screen sizes */}
         <div className="mb-6 flex items-center justify-center lg:justify-start">
-          <div className="inline-flex flex-wrap items-center gap-1.5 p-1.5 bg-white/90 dark:bg-stone-900/90 rounded-2xl border border-rose-200 dark:border-rose-900/60 shadow-xs max-w-full">
-            <div className="px-2.5 py-1 text-[11px] font-bold text-stone-500 dark:text-stone-400 flex items-center gap-1">
+          <div className="w-full sm:w-auto inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-white/95 dark:bg-stone-900/95 rounded-2xl border border-rose-200 dark:border-rose-900/70 shadow-xs overflow-x-auto no-scrollbar max-w-full">
+            <div className="hidden xs:flex px-2 sm:px-2.5 py-1 text-[11px] font-bold text-stone-500 dark:text-stone-400 items-center gap-1 shrink-0">
               <Calendar className="w-3.5 h-3.5 text-rose-500" />
               <span>Dịp Lễ:</span>
             </div>
@@ -66,14 +66,18 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectWishForCard })
                   key={h.id}
                   type="button"
                   onClick={() => handleSelectHoliday(h.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                     isActive
-                      ? 'bg-gradient-to-r from-rose-600 to-amber-500 text-white shadow-sm scale-102'
+                      ? 'bg-gradient-to-r from-rose-600 to-amber-500 text-white shadow-md scale-102 font-extrabold'
                       : 'text-stone-700 dark:text-stone-300 hover:bg-rose-50 dark:hover:bg-stone-800'
                   }`}
+                  title={h.fullName}
                 >
-                  <span>{holidayIcons[h.id]}</span>
-                  <span>{h.name}</span>
+                  <span className="text-sm shrink-0">{holidayIcons[h.id]}</span>
+                  <span className="font-mono">{h.shortDate}</span>
+                  <span className="hidden md:inline font-normal opacity-90 text-[11px]">
+                    · {h.id === '20-10' ? 'Phụ Nữ VN' : h.id === '20-11' ? 'Thầy Cô' : h.id === '08-03' ? '8/3' : h.id === 'tet' ? 'Tết' : 'Valentine'}
+                  </span>
                 </button>
               );
             })}

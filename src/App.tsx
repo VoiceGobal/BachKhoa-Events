@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ArrowUp } from 'lucide-react';
 import { PetalCanvas } from './components/PetalCanvas';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
@@ -19,6 +20,7 @@ import { WishItem } from './types';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { EventProvider, useEvent } from './context/EventContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 function AppContent() {
   const { holidayConfig } = useEvent();
@@ -64,15 +66,31 @@ function AppContent() {
   }, [holidayConfig]);
 
   const [reducedMotion, setReducedMotion] = useState<boolean>(false);
+  const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
+
+  // Monitor scroll for Back to Top button
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 300);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Check shared card link from URL hash on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Check system prefers-reduced-motion
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (mediaQuery.matches) {
-      setReducedMotion(true);
+    // Check system prefers-reduced-motion safely
+    if (typeof window.matchMedia === 'function') {
+      try {
+        const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+        if (mediaQuery && mediaQuery.matches) {
+          setReducedMotion(true);
+        }
+      } catch {
+        // Ignore
+      }
     }
 
     // Check URL hash for shared card or modals
@@ -239,12 +257,14 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <EventProvider>
-          <AppContent />
-        </EventProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <EventProvider>
+            <AppContent />
+          </EventProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

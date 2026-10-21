@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 
 dotenv.config();
 
@@ -175,15 +175,18 @@ QUY TẮC:
 7. Không suy đoán tiêu cực, tử vi số phận. Giàu chất thơ mộng, ấm áp, văn phong chuẩn mực tiếng Việt.`;
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Gemini API call timed out')), 12000)
+      setTimeout(() => reject(new Error('Gemini API call timed out')), 25000)
     );
 
     const generatePromise = aiClient.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
       contents: `Hãy tạo lời chúc cho dịp ${holidayName} theo các thông số đã cung cấp.`,
       config: {
         systemInstruction: systemPrompt,
         temperature: 0.8,
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.LOW,
+        },
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -640,10 +643,8 @@ app.post('/api/spin/claim-ticket', async (req: Request, res: Response) => {
   if (!user) {
     return res.status(401).json({ error: 'Vui lòng đăng nhập để nhận vé.' });
   }
-  if (!user.emailVerified) {
-    return res.status(403).json({
-      error: 'Email chưa được xác minh. Hãy đăng nhập bằng Google hoặc xác minh email trước khi nhận vé.',
-    });
+  if (!user.uid) {
+    return res.status(401).json({ error: 'Tài khoản không hợp lệ. Vui lòng đăng nhập lại.' });
   }
 
   const occasion = String(req.body?.occasion || '20-10');

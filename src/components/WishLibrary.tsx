@@ -4,6 +4,7 @@ import { allWishes, categoryLabels, toneLabels } from '../data/wishes';
 import { WishItem, RecipientCategory, WishTone } from '../types';
 import { playSoftPop } from '../utils/audio';
 import { useEvent } from '../context/EventContext';
+import { safeLocalStorage } from '../utils/storage';
 
 interface WishLibraryProps {
   onOpenCardWithWish: (title: string, message: string, recipient: string) => void;
@@ -25,11 +26,10 @@ export const WishLibrary: React.FC<WishLibraryProps> = ({ onOpenCardWithWish }) 
     }
   }, [activeHoliday]);
 
-  // Favorites stored in localStorage
+  // Favorites stored in safeLocalStorage
   const [favorites, setFavorites] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
     try {
-      const saved = localStorage.getItem('wish_favorites_2010');
+      const saved = safeLocalStorage.getItem('wish_favorites_2010');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -41,7 +41,7 @@ export const WishLibrary: React.FC<WishLibraryProps> = ({ onOpenCardWithWish }) 
     setFavorites((prev) => {
       const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
       try {
-        localStorage.setItem('wish_favorites_2010', JSON.stringify(next));
+        safeLocalStorage.setItem('wish_favorites_2010', JSON.stringify(next));
       } catch {
         //
       }

@@ -28,6 +28,12 @@ import { useEvent, HolidayId } from '../context/EventContext';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { GetTicketModal } from './GetTicketModal';
+import {
+  getFirestoreEventConfig,
+  checkFirestoreTicket,
+  executeClientSpin,
+  getFirestoreTickets,
+} from '../services/firestoreService';
 
 interface LuckyWheelProps {
   onOpenCardWithWish: (title: string, message: string, recipient: string) => void;
@@ -147,10 +153,13 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
   const wheelRef = useRef<HTMLDivElement | null>(null);
   const spinTimeoutsRef = useRef<number[]>([]);
 
-  // Fetch event info and sample available tickets
+  // Fetch event info and sample available tickets with Firestore fallback (works on Vercel)
   useEffect(() => {
     fetch('/api/event/info')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('API unavailable');
+        return res.json();
+      })
       .then((data) => {
         if (data && typeof data.remainingPrizes === 'number') {
           setRemainingPrizesCount(data.remainingPrizes);
@@ -159,11 +168,19 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           setTotalBudget(data.totalBudget);
         }
       })
-      .catch(() => {});
+      .catch(async () => {
+        // Fallback directly to Cloud Firestore
+        const cfg = await getFirestoreEventConfig();
+        setRemainingPrizesCount(cfg.remainingPrizes);
+        setTotalBudget(cfg.totalBudget);
+      });
 
     // Fetch active sample tickets for the current holiday
     fetch(`/api/spin/public-tickets?prefix=${holidayConfig.ticketPrefix}`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('API unavailable');
+        return res.json();
+      })
       .then((data) => {
         if (data?.tickets?.length) {
           setPublicTickets(data.tickets);
@@ -171,8 +188,16 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           setPublicTickets(holidayConfig.sampleTickets);
         }
       })
-      .catch(() => {
-        setPublicTickets(holidayConfig.sampleTickets);
+      .catch(async () => {
+        const firestoreTickets = await getFirestoreTickets();
+        const matching = firestoreTickets
+          .filter((t) => !t.isUsed && t.code.startsWith(holidayConfig.ticketPrefix))
+          .map((t) => t.code);
+        if (matching.length > 0) {
+          setPublicTickets(matching.slice(0, 10));
+        } else {
+          setPublicTickets(holidayConfig.sampleTickets);
+        }
       });
   }, [activeHoliday, holidayConfig]);
 
@@ -183,7 +208,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     };
   }, []);
 
-  // Quick ticket checker
+  // Quick ticket checker with Cloud Firestore fallback
   const handleCheckTicket = async () => {
     const code = ticketInput.trim().toUpperCase();
     if (!code) {
@@ -195,31 +220,50 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     setTicketStatus(null);
 
     try {
-      const res = await fetch('/api/spin/check-ticket', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketCode: code }),
-      });
-      const data = await res.json();
-      if (res.ok && data.valid) {
+      let checkedViaApi = false;
+      try {
+        const res = await fetch('/api/spin/check-ticket', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketCode: code }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          checkedViaApi = true;
+          if (data.valid) {
+            setTicketStatus({
+              checked: true,
+              valid: true,
+              msg: data.message || `Mã vé "${code}" hợp lệ! Bấm "Quay Số Bằng Mã Vé" để tham gia nhận thưởng.`,
+            });
+            playSoftPop();
+          } else {
+            setTicketStatus({
+              checked: true,
+              valid: false,
+              msg: data.error || `Mã vé "${code}" không hợp lệ hoặc đã qua sử dụng.`,
+            });
+          }
+        }
+      } catch {
+        // API offline or on Vercel
+      }
+
+      if (!checkedViaApi) {
+        // Fallback directly to Cloud Firestore
+        const result = await checkFirestoreTicket(code);
         setTicketStatus({
           checked: true,
-          valid: true,
-          msg: data.message || `Mã vé "${code}" hợp lệ! Bấm "Quay Số Bằng Mã Vé" để tham gia nhận thưởng.`,
+          valid: result.valid,
+          msg: result.message,
         });
-        playSoftPop();
-      } else {
-        setTicketStatus({
-          checked: true,
-          valid: false,
-          msg: data.error || `Mã vé "${code}" không hợp lệ hoặc đã qua sử dụng.`,
-        });
+        if (result.valid) playSoftPop();
       }
     } catch {
       setTicketStatus({
         checked: true,
         valid: false,
-        msg: 'Không thể kết nối máy chủ kiểm tra vé.',
+        msg: 'Không thể kết nối CSDL kiểm tra vé.',
       });
     } finally {
       setCheckingTicket(false);
@@ -232,7 +276,6 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     const hasTicket = Boolean(ticketInput.trim());
 
     // REQUIREMENT: Allow spinning with ticket WITHOUT login!
-    // If user has NO ticket, is NOT logged in, and NOT demo -> auto issue a quick ticket or guide them
     if (!currentUser && !hasTicket && !forceDemo) {
       setErrorMsg('Vui lòng nhập mã vé dự thưởng để tham gia. Nếu chưa có mã vé, quý vị bấm "Lấy vé nhanh" để đăng nhập Gmail nhận vé hoặc liên hệ Ban Tổ Chức.');
       setIsGetTicketModalOpen(true);
@@ -263,33 +306,55 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       let isDemoResult = forceDemo;
 
       if (hasTicket || forceDemo) {
-        // Spin authoritative ticket or demo via server
-        const res = await fetch('/api/spin/play', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ticketCode: ticketInput.trim(),
-            isDemo: forceDemo,
-          }),
-        });
+        let spinSucceeded = false;
+        try {
+          const res = await fetch('/api/spin/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ticketCode: ticketInput.trim(),
+              isDemo: forceDemo,
+            }),
+          });
 
-        const data = await res.json();
-        if (!res.ok) {
-          setSpinning(false);
-          setNeedleVibrating(false);
-          setErrorMsg(data.error || 'Lỗi khi quay số.');
-          return;
+          if (res.ok) {
+            const data = await res.json();
+            targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
+            const matchingSlice = slices[targetIndex];
+            label = matchingSlice.label;
+            subLabel = matchingSlice.subLabel;
+            wishMessage = data.wishMessage || matchingSlice.wish;
+            prizeAmount = data.prizeAmount || matchingSlice.amount;
+            claimCode = data.claimCode;
+            ticketCode = data.ticketCode;
+            isDemoResult = Boolean(data.isDemo);
+            spinSucceeded = true;
+          }
+        } catch {
+          // Server endpoint down or running on Vercel
         }
 
-        targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
-        const matchingSlice = slices[targetIndex];
-        label = matchingSlice.label;
-        subLabel = matchingSlice.subLabel;
-        wishMessage = data.wishMessage || matchingSlice.wish;
-        prizeAmount = data.prizeAmount || matchingSlice.amount;
-        claimCode = data.claimCode;
-        ticketCode = data.ticketCode;
-        isDemoResult = Boolean(data.isDemo);
+        // Direct Cloud Firestore execution if server endpoint is unavailable
+        if (!spinSucceeded) {
+          const clientSpin = await executeClientSpin(
+            {
+              ticketCode: ticketInput.trim(),
+              isDemo: forceDemo,
+              userId: currentUser?.uid,
+              userEmail: currentUser?.email || undefined,
+            },
+            slices
+          );
+          targetIndex = clientSpin.segmentIndex % 8;
+          const matchingSlice = slices[targetIndex];
+          label = matchingSlice.label;
+          subLabel = matchingSlice.subLabel;
+          wishMessage = clientSpin.wishMessage || matchingSlice.wish;
+          prizeAmount = clientSpin.prizeAmount;
+          claimCode = clientSpin.claimCode;
+          ticketCode = clientSpin.ticketCode;
+          isDemoResult = clientSpin.isDemo;
+        }
 
         // Update ticket status
         if (ticketStatus?.valid) {
@@ -300,30 +365,42 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           });
         }
       } else {
-        // Lượt quay miễn phí: server quyết định kết quả và đếm lượt (chỉ lời chúc, không có tiền)
-        const idToken = await currentUser!.getIdToken();
-        const res = await fetch('/api/spin/free', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
-          body: '{}',
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setSpinning(false);
-          setNeedleVibrating(false);
-          setErrorMsg(data.error || 'Không thể thực hiện lượt quay miễn phí.');
-          return;
-        }
+        // Lượt quay miễn phí: thử server trước, nếu không được fallback client
+        let freeSucceeded = false;
         try {
-          await decrementUserSpin(); // chỉ để cập nhật số lượt hiển thị trên hồ sơ
+          const idToken = await currentUser!.getIdToken();
+          const res = await fetch('/api/spin/free', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
+            body: '{}',
+          });
+          if (res.ok) {
+            const data = await res.json();
+            targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
+            label = slices[targetIndex].label;
+            subLabel = slices[targetIndex].subLabel;
+            wishMessage = data.wishMessage || slices[targetIndex].wish;
+            prizeAmount = 0;
+            freeSucceeded = true;
+          }
+        } catch {
+          // Fall through
+        }
+
+        if (!freeSucceeded) {
+          const wishIndices = slices.map((s, idx) => (!s.isCash ? idx : -1)).filter((idx) => idx !== -1);
+          targetIndex = wishIndices[Math.floor(Math.random() * wishIndices.length)];
+          label = slices[targetIndex].label;
+          subLabel = slices[targetIndex].subLabel;
+          wishMessage = slices[targetIndex].wish;
+          prizeAmount = 0;
+        }
+
+        try {
+          await decrementUserSpin();
         } catch (err) {
           console.warn('Could not sync spin count to profile:', err);
         }
-        targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
-        label = slices[targetIndex].label;
-        subLabel = slices[targetIndex].subLabel;
-        wishMessage = data.wishMessage || slices[targetIndex].wish;
-        prizeAmount = 0;
       }
 
       // Mathematical rotation alignment (needle at 12 o'clock, 0 degrees)

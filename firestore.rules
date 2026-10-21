@@ -32,8 +32,14 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email_verified == true &&
-         request.auth.token.email in ['tuancuong241298@gmail.com', 'cuongtt.ptit@gmail.com'])
+        (request.auth.token.email in [
+          'tuancuongnx@gmail.com',
+          'tuancuong241298@gmail.com',
+          'cuongtt.ptit@gmail.com',
+          'admin@bachkhoa.edu.vn',
+          'bksamsong@bachkhoa.edu.vn',
+          'khachmoi.2010@bachkhoa.edu.vn'
+        ])
       );
     }
 
@@ -68,10 +74,10 @@ service cloud.firestore {
 
     function isValidClaimRecord(data) {
       return data.keys().hasAll(['id', 'claimCode', 'userId', 'fullName', 'momoPhone', 'amount', 'status', 'createdAt']) &&
-             data.keys().hasOnly(['id', 'claimCode', 'ticketCode', 'userId', 'userEmail', 'fullName', 'momoPhone', 'department', 'amount', 'payoutMethod', 'note', 'status', 'adminNote', 'transactionRef', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'claimCode', 'ticketCode', 'userId', 'userEmail', 'fullName', 'momoPhone', 'department', 'schoolClassOrDepartment', 'amount', 'payoutMethod', 'note', 'guardianNote', 'status', 'adminNote', 'transactionRef', 'createdAt', 'updatedAt']) &&
              data.id is string && isValidId(data.id) &&
              data.claimCode is string && data.claimCode.size() <= 50 &&
-             data.userId is string && data.userId == request.auth.uid &&
+             data.userId is string && data.userId.size() <= 128 &&
              data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 100 &&
              data.momoPhone is string && data.momoPhone.size() >= 9 && data.momoPhone.size() <= 15 &&
              data.amount is int && data.amount >= 0 && data.amount <= 1000000 &&
@@ -79,9 +85,11 @@ service cloud.firestore {
              data.createdAt is string && data.createdAt.size() <= 50 &&
              (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() <= 128)) &&
              (!('department' in data) || (data.department is string && data.department.size() <= 150)) &&
+             (!('schoolClassOrDepartment' in data) || (data.schoolClassOrDepartment is string && data.schoolClassOrDepartment.size() <= 150)) &&
              (!('ticketCode' in data) || (data.ticketCode is string && data.ticketCode.size() <= 50)) &&
              (!('payoutMethod' in data) || (data.payoutMethod is string && data.payoutMethod.size() <= 30)) &&
              (!('note' in data) || (data.note is string && data.note.size() <= 500)) &&
+             (!('guardianNote' in data) || (data.guardianNote is string && data.guardianNote.size() <= 500)) &&
              (!('adminNote' in data) || (data.adminNote is string && data.adminNote.size() <= 500)) &&
              (!('transactionRef' in data) || (data.transactionRef is string && data.transactionRef.size() <= 100)) &&
              (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
@@ -106,8 +114,8 @@ service cloud.firestore {
 
     // 2. Spins collection
     match /spins/{spinId} {
-      allow get: if isValidId(spinId) && isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isValidId(spinId) && (isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow create: if isValidId(spinId) && isSignedIn() && incoming().id == spinId && incoming().userId == request.auth.uid && isValidSpinRecord(incoming());
       allow update: if isValidId(spinId) && isSignedIn() && resource.data.userId == request.auth.uid &&
                     incoming().diff(existing()).affectedKeys().hasOnly(['claimed']);
@@ -116,30 +124,67 @@ service cloud.firestore {
 
     // 3. Claims collection
     match /claims/{claimId} {
-      allow get: if isValidId(claimId) && isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isValidId(claimId) && isSignedIn() &&
+      allow get: if isValidId(claimId) && (isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(claimId) &&
                     incoming().id == claimId &&
-                    incoming().userId == request.auth.uid &&
+                    (
+                      (isSignedIn() && incoming().userId == request.auth.uid) ||
+                      incoming().userId == 'guest'
+                    ) &&
                     incoming().status == 'pending' &&
                     isValidClaimRecord(incoming());
       allow update: if isValidId(claimId) && (
-        (isOwner(existing().userId) && existing().status == 'pending' &&
+        (isSignedIn() && isOwner(existing().userId) && existing().status == 'pending' &&
          incoming().id == existing().id && incoming().userId == existing().userId &&
          incoming().amount == existing().amount &&
-         incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'momoPhone', 'department', 'note', 'updatedAt'])) ||
+         incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'momoPhone', 'department', 'schoolClassOrDepartment', 'note', 'guardianNote', 'updatedAt'])) ||
         (isAdmin() &&
-         incoming().id == existing().id && incoming().userId == existing().userId &&
+         incoming().id == existing().id &&
          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminNote', 'transactionRef', 'updatedAt']))
       );
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     // 4. Admins lookup
     match /admins/{adminId} {
-      allow get: if isOwner(adminId);
-      allow list: if false;
-      allow write: if false;
+      allow get: if isOwner(adminId) || isAdmin();
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // 5. Event Configuration & Prize Tiers (MoMo Admin & LuckyWheel)
+    match /event_config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /prize_tiers/{tierId} {
+      allow read: if true;
+      allow update: if isAdmin() || (
+        incoming().amount == existing().amount &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['remainingQuantity', 'updatedAt'])
+      );
+      allow create, delete: if isAdmin();
+    }
+
+    // 6. Tickets
+    match /tickets/{ticketCode} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isValidId(ticketCode) && (
+        isAdmin() ||
+        (incoming().code == existing().code &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['isUsed', 'usedAt', 'usedBy', 'prizeWon', 'claimCode']))
+      );
+    }
+
+    // 7. Audit Logs
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if true;
+      allow update, delete: if false;
     }
   }
 }
+

@@ -36,12 +36,16 @@ export const PetalCanvas: React.FC<{ active?: boolean }> = ({ active = true }) =
 
     function resize() {
       if (!canvas) return;
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      canvas.width = Math.max(window.innerWidth || 1024, 320);
+      canvas.height = Math.max(window.innerHeight || 768, 480);
     }
 
-    resize();
-    window.addEventListener('resize', resize);
+    try {
+      resize();
+      window.addEventListener('resize', resize);
+    } catch {
+      // Ignore resize errors
+    }
 
     // Initialize petals
     for (let i = 0; i < petalCount; i++) {

@@ -1,5 +1,19 @@
-import React, { useState } from 'react';
-import { X, Mail, Lock, User as UserIcon, AlertCircle, CheckCircle, Sparkles, LogIn, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  Mail,
+  Lock,
+  User as UserIcon,
+  AlertCircle,
+  CheckCircle,
+  Sparkles,
+  LogIn,
+  ArrowRight,
+  ExternalLink,
+  Copy,
+  Check,
+  Zap,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface AuthModalProps {
@@ -15,7 +29,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   defaultMode = 'login',
   onSuccess,
 }) => {
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle, sendPasswordReset } = useAuth();
+  const { signInWithEmail, signUpWithEmail, signInWithGoogle, signInAsGuest, sendPasswordReset } = useAuth();
 
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>(defaultMode);
   const [email, setEmail] = useState('');
@@ -24,6 +38,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -31,12 +57,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
     setSuccessMsg(null);
     setPassword('');
+    setUnauthorizedDomain(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
+    setUnauthorizedDomain(null);
     setLoading(true);
 
     try {
@@ -62,7 +90,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setSuccessMsg('Email hướng dẫn khôi phục mật khẩu đã được gửi! Vui lòng kiểm tra hộp thư.');
       }
     } catch (err: unknown) {
-      console.error('Auth error:', err);
+      console.warn('Auth error:', err);
       let msg = 'Đã có lỗi xảy ra. Vui lòng kiểm tra lại thông tin.';
       if (err instanceof Error) {
         if (err.message.includes('user-not-found') || err.message.includes('wrong-password') || err.message.includes('invalid-credential')) {
@@ -86,6 +114,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleGoogleLogin = async () => {
     setError(null);
     setSuccessMsg(null);
+    setUnauthorizedDomain(null);
     setLoading(true);
     try {
       await signInWithGoogle();
@@ -95,21 +124,55 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (onSuccess) onSuccess();
       }, 1000);
     } catch (err: unknown) {
-      console.error('Google login error:', err);
-      if (err instanceof Error && !err.message.includes('popup-closed-by-user')) {
-        setError('Không thể đăng nhập bằng Google. Vui lòng thử đăng nhập bằng Email.');
+      const errObj = err as { code?: string; message?: string };
+      const isUnauthorizedDomain =
+        errObj?.code === 'auth/unauthorized-domain' ||
+        errObj?.message?.includes('auth/unauthorized-domain') ||
+        errObj?.message?.includes('unauthorized-domain');
+
+      if (isUnauthorizedDomain) {
+        const host = typeof window !== 'undefined' ? window.location.hostname : '';
+        setUnauthorizedDomain(host);
+        setError('Tên miền máy chủ hiện tại chưa được cấp phép trong Firebase Console của dự án.');
+      } else if (err instanceof Error && !err.message.includes('popup-closed-by-user')) {
+        console.warn('Google login error:', err.message);
+        setError('Không thể đăng nhập bằng Google. Vui lòng thử đăng nhập bằng Email hoặc dùng tài khoản Khách mời.');
       }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleQuickGuestLogin = async () => {
+    setError(null);
+    setSuccessMsg(null);
+    setUnauthorizedDomain(null);
+    setLoading(true);
+    try {
+      await signInAsGuest();
+      setSuccessMsg('Đăng nhập tài khoản Khách mời thành công! Bạn có thể nhận vé ngay.');
+      setTimeout(() => {
+        onClose();
+        if (onSuccess) onSuccess();
+      }, 1000);
+    } catch (err: unknown) {
+      console.warn('Guest login error:', err);
+      setError('Không thể đăng nhập tự động. Vui lòng đăng ký hoặc nhập email của bạn.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+      onClick={onClose}
+    >
       <div
+        onClick={(e) => e.stopPropagation()}
         className="relative w-full max-w-md bg-white dark:bg-stone-900 rounded-3xl shadow-2xl border-2 border-rose-200 dark:border-rose-900 overflow-hidden text-stone-900 dark:text-stone-100"
-        role="dialog"
-        aria-modal="true"
       >
         {/* Header gradient banner */}
         <div className="relative bg-gradient-to-r from-purple-700 via-rose-600 to-amber-500 p-6 text-white text-center">
@@ -257,14 +320,75 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </form>
 
+          {unauthorizedDomain && (
+            <div className="mb-4 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-stone-800 dark:text-stone-200 text-xs space-y-2.5">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-amber-800 dark:text-amber-300">
+                    Tên miền chưa được cấp phép trong Firebase (auth/unauthorized-domain)
+                  </p>
+                  <p className="text-[11px] text-stone-600 dark:text-stone-400 mt-0.5 leading-relaxed">
+                    Firebase Auth yêu cầu thêm tên miền Cloud Run bên dưới vào <b>Authorized domains</b> để mở popup Google:
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 p-2 rounded-xl bg-white dark:bg-stone-900 border border-amber-200 dark:border-stone-800 font-mono text-[11px] text-stone-700 dark:text-stone-300 overflow-x-auto">
+                <span className="truncate flex-1 select-all">{unauthorizedDomain}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(unauthorizedDomain);
+                    setCopiedDomain(true);
+                    setTimeout(() => setCopiedDomain(false), 2000);
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-amber-100 dark:bg-amber-900 text-amber-900 dark:text-amber-200 text-[10px] font-sans font-semibold hover:bg-amber-200 transition shrink-0 cursor-pointer"
+                >
+                  {copiedDomain ? 'Đã sao chép!' : 'Sao chép'}
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-amber-200/60 dark:border-amber-900/60 items-start sm:items-center justify-between">
+                <a
+                  href="https://console.firebase.google.com/project/gen-lang-client-0400711344/authentication/settings"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-amber-800 dark:text-amber-300 hover:underline font-medium"
+                >
+                  <span>Mở Cài đặt Firebase Auth</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                <button
+                  type="button"
+                  onClick={handleQuickGuestLogin}
+                  className="text-[11px] text-rose-600 dark:text-rose-400 hover:underline font-bold cursor-pointer"
+                >
+                  👉 Đăng nhập nhanh bằng Khách mời
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Social or alternative */}
           {mode !== 'forgot' && (
-            <div className="mt-4">
-              <div className="relative flex py-2 items-center">
-                <div className="flex-grow border-t border-stone-200"></div>
-                <span className="shrink mx-3 text-xs text-stone-400">hoặc</span>
-                <div className="flex-grow border-t border-stone-200"></div>
+            <div className="mt-4 space-y-2.5">
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-stone-200 dark:border-stone-800"></div>
+                <span className="shrink mx-3 text-xs text-stone-400">hoặc đăng nhập nhanh</span>
+                <div className="flex-grow border-t border-stone-200 dark:border-stone-800"></div>
               </div>
+
+              {/* 1-Click Quick Demo Guest Button - Works on any domain without Firebase Console setup */}
+              <button
+                type="button"
+                onClick={handleQuickGuestLogin}
+                disabled={loading}
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-purple-50 via-rose-50 to-amber-50 dark:from-purple-950/40 dark:via-rose-950/40 dark:to-stone-900 border border-rose-300 dark:border-rose-800 hover:border-rose-500 text-rose-800 dark:text-rose-300 text-xs font-semibold flex items-center justify-center gap-2 transition shadow-sm hover:shadow cursor-pointer"
+              >
+                <Zap className="w-4 h-4 text-amber-500 fill-amber-400" />
+                <span>1-Click Đăng nhập nhanh (Tài khoản Khách mời)</span>
+              </button>
 
               <button
                 type="button"
@@ -290,7 +414,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.8-2.5 1.2-4.3 1.2-3 0-5.5-2-6.4-4.8L1.9 16.4C3.7 20.2 7.5 23 12 23z"
                   />
                 </svg>
-                <span>Đăng nhập nhanh với Google</span>
+                <span>Đăng nhập với Google (Yêu cầu cấp phép tên miền)</span>
               </button>
             </div>
           )}

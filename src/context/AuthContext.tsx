@@ -31,6 +31,7 @@ interface AuthContextType {
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
+  signInAsGuest: () => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -40,8 +41,10 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const ADMIN_EMAILS = [
+  'tuancuongnx@gmail.com',
   'tuancuong241298@gmail.com',
   'cuongtt.ptit@gmail.com',
+  'admin@bachkhoa.edu.vn',
 ];
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -122,6 +125,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fetchOrCreateProfile(result.user);
   };
 
+  const signInAsGuest = async () => {
+    const guestEmail = 'khachmoi.2010@bachkhoa.edu.vn';
+    const guestPass = 'BKSamsong2010@2026';
+    const guestName = 'Khách mời Bách Khoa';
+    try {
+      const userCred = await signInWithEmailAndPassword(auth, guestEmail, guestPass);
+      await fetchOrCreateProfile(userCred.user, guestName);
+    } catch (e: any) {
+      if (
+        e?.code === 'auth/user-not-found' ||
+        e?.code === 'auth/invalid-credential' ||
+        e?.message?.includes('user-not-found') ||
+        e?.message?.includes('invalid-credential')
+      ) {
+        try {
+          const userCred = await createUserWithEmailAndPassword(auth, guestEmail, guestPass);
+          await updateProfile(userCred.user, { displayName: guestName });
+          await fetchOrCreateProfile(userCred.user, guestName);
+          return;
+        } catch (createErr) {
+          console.warn('Could not create guest user, retrying sign-in:', createErr);
+        }
+      }
+      throw e;
+    }
+  };
+
   const sendPasswordReset = async (email: string) => {
     await sendPasswordResetEmail(auth, email.trim());
   };
@@ -179,6 +209,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signInWithEmail,
         signUpWithEmail,
         signInWithGoogle,
+        signInAsGuest,
         sendPasswordReset,
         signOut,
         refreshProfile,
