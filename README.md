@@ -18,6 +18,7 @@
 Backend cần một service account riêng; web config không cấp quyền server. Trong Firebase Console, tạo private key cho service account của đúng project, sau đó thêm toàn bộ JSON vào Vercel Project → Settings → Environment Variables:
 
 - `FIREBASE_SERVICE_ACCOUNT_JSON`: nội dung JSON service account, đặt cho Production và Preview.
+- Nếu Vercel không nhận JSON nhiều dòng, thay bằng ba biến `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` lấy từ cùng service account. Với private key, dán đầy đủ cả phần `BEGIN/END PRIVATE KEY`; nếu giao diện không giữ xuống dòng, thay mỗi xuống dòng bằng ký tự `\n`.
 - `FIREBASE_ADMIN_EMAILS`: danh sách email quản trị bổ sung, phân cách bằng dấu phẩy (không bắt buộc).
 - `VITE_FIREBASE_ADMIN_EMAILS`: cùng danh sách email bổ sung để giao diện hiện bảng quản trị (không bắt buộc).
 - `GEMINI_API_KEY`: tùy chọn; không có key, chức năng lời chúc dùng nội dung dự phòng.

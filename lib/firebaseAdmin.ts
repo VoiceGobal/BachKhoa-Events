@@ -6,16 +6,23 @@ function getApp() {
   const existing = getApps()[0];
   if (existing) return existing;
 
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!raw) {
-    throw new Error('Thiếu biến môi trường FIREBASE_SERVICE_ACCOUNT_JSON trên Vercel.');
-  }
-
   let serviceAccount: { project_id?: string; client_email?: string; private_key?: string };
-  try {
-    serviceAccount = JSON.parse(raw);
-  } catch {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON không phải JSON hợp lệ.');
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (raw) {
+    try {
+      serviceAccount = JSON.parse(raw);
+    } catch {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON không phải JSON hợp lệ.');
+    }
+  } else {
+    serviceAccount = {
+      project_id: process.env.FIREBASE_PROJECT_ID,
+      client_email: process.env.FIREBASE_CLIENT_EMAIL,
+      private_key: process.env.FIREBASE_PRIVATE_KEY,
+    };
+    if (!serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
+      throw new Error('Thiếu FIREBASE_SERVICE_ACCOUNT_JSON hoặc bộ biến FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY trên Vercel.');
+    }
   }
 
   if (!serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
