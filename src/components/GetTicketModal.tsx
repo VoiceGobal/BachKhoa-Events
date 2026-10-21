@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
-import { X, Mail, Phone, ShieldCheck, Ticket, Sparkles, Building, UserCheck, Copy, Check } from 'lucide-react';
+import { X, Mail, Phone, ShieldCheck, Ticket, Building, UserCheck, Copy, Check } from 'lucide-react';
 import { playSoftPop } from '../utils/audio';
 import { useAuth } from '../context/AuthContext';
 import { useEvent } from '../context/EventContext';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { generateTicketCode } from '../services/firestoreService';
 
 interface GetTicketModalProps {
   isOpen: boolean;
@@ -31,41 +28,21 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
     setClaiming(true);
     setClaimError('');
     try {
-      let ticketCode = '';
-      try {
-        const idToken = await currentUser.getIdToken();
-        const res = await fetch('/api/spin/claim-ticket', {
+      const idToken = await currentUser.getIdToken();
+      const res = await fetch('/api/spin/claim-ticket', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
           body: JSON.stringify({ occasion: holidayConfig.ticketPrefix }),
         });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ticketCode) ticketCode = data.ticketCode;
-        }
-      } catch {
-        // Fallback for Vercel
-      }
-
-      if (!ticketCode) {
-        // Generate and record in Cloud Firestore directly
-        ticketCode = generateTicketCode(holidayConfig.ticketPrefix);
-        const ticketRef = doc(db, 'tickets', ticketCode);
-        await setDoc(ticketRef, {
-          code: ticketCode,
-          occasion: holidayConfig.ticketPrefix,
-          isUsed: false,
-          createdAt: new Date().toISOString(),
-          claimedBy: currentUser.uid,
-          userEmail: currentUser.email || '',
-        });
-      }
+      const data = await res.json();
+      if (!res.ok || !data.ticketCode) throw new Error(data.error || 'Không thể cấp vé lúc này. Vui lòng thử lại sau.');
+      const ticketCode = data.ticketCode;
 
       onSelectSampleTicket(ticketCode);
       playSoftPop();
       onClose();
-    } catch {
-      setClaimError('Lỗi kết nối máy chủ. Vui lòng thử lại.');
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : 'Lỗi kết nối máy chủ. Vui lòng thử lại.');
     } finally {
       setClaiming(false);
     }
@@ -80,12 +57,6 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
       setCopiedContact(label);
       setTimeout(() => setCopiedContact(''), 2000);
     } catch {}
-  };
-
-  const handleChooseDemo = (code: string) => {
-    onSelectSampleTicket(code);
-    playSoftPop();
-    onClose();
   };
 
   return (
@@ -232,26 +203,6 @@ export const GetTicketModal: React.FC<GetTicketModalProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* Method 3: Test Sample Tickets */}
-          <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs">
-            <span className="font-bold text-amber-900 dark:text-amber-300 block mb-1.5 flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              <span>Thử nghiệm nhanh (Vé mẫu có sẵn):</span>
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {holidayConfig.sampleTickets.map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  onClick={() => handleChooseDemo(code)}
-                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-stone-900 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-300 dark:border-amber-700 font-mono font-bold text-amber-950 dark:text-amber-200 cursor-pointer transition shadow-2xs"
-                >
-                  {code}
-                </button>
-              ))}
             </div>
           </div>
 

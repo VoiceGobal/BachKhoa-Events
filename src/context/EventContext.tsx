@@ -39,7 +39,6 @@ export interface HolidayConfig {
   defaultCardMessage: string;
   relationships: HolidayRelationship[];
   interactiveItems: InteractiveObject[];
-  sampleTickets: string[];
 }
 
 export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
@@ -72,7 +71,6 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'friend_f', label: 'Bạn thân / Bạn học', defaultPronoun: 'Mình - Bạn' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: ['PN8K2M9X', 'PN7T4V1B', 'PN9Q3W6Z', 'PN5L8R2Y'],
     interactiveItems: [
       {
         id: 'item-flower',
@@ -166,7 +164,6 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'colleague_edu', label: 'Đồng nghiệp ngành Sư phạm', defaultPronoun: 'Tôi - Thầy/Cô' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: ['NG8B4K2Z', 'NG3V7M1X', 'NG9R2P5Q', 'NG6T8L4W'],
     interactiveItems: [
       {
         id: 'item-book',
@@ -259,7 +256,6 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'friend_f', label: 'Bạn bè phái nữ', defaultPronoun: 'Mình - Bạn' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: ['Q89L2T7K', 'Q83M6V1P', 'Q87R4X9Z', 'Q85B8N2W'],
     interactiveItems: [
       {
         id: 'item-tulip',
@@ -351,7 +347,6 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'friends', label: 'Bạn bè & Tri kỷ', defaultPronoun: 'Mình - Bạn' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: ['TT6N2K9R', 'TT8M4P1Z', 'TT3V7X5Q', 'TT9L2B8W'],
     interactiveItems: [
       {
         id: 'item-blossom',
@@ -443,7 +438,6 @@ export const HOLIDAYS_MAP: Record<HolidayId, HolidayConfig> = {
       { id: 'crush', label: 'Người thương thầm (Crush)', defaultPronoun: 'Mình - Bạn' },
       { id: 'other', label: 'Mối quan hệ khác...', defaultPronoun: '' },
     ],
-    sampleTickets: ['VL8K4R2Y', 'VL3M9P1X', 'VL7T2W5Z', 'VL5Q8N6B'],
     interactiveItems: [
       {
         id: 'item-rose',

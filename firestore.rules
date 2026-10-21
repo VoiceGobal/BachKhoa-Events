@@ -170,13 +170,10 @@ service cloud.firestore {
 
     // 6. Tickets
     match /tickets/{ticketCode} {
-      allow read: if true;
+      // Ticket codes are secrets; guests validate and consume them through the server API.
+      allow read: if isAdmin();
       allow create, delete: if isAdmin();
-      allow update: if isValidId(ticketCode) && (
-        isAdmin() ||
-        (incoming().code == existing().code &&
-         incoming().diff(existing()).affectedKeys().hasOnly(['isUsed', 'usedAt', 'usedBy', 'prizeWon', 'claimCode']))
-      );
+      allow update: if isAdmin();
     }
 
     // 7. Audit Logs

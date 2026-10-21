@@ -20,6 +20,7 @@ npm start                 # NODE_ENV=production
 ```
 
 - Đặt `DATA_DIR` trỏ tới ổ đĩa **bền vững** (vé, giải thưởng và yêu cầu nhận thưởng lưu ở `DATA_DIR/database.json`).
+- Nếu host giao diện trên Vercel, triển khai `server.ts` thành một dịch vụ Node.js có ổ đĩa bền vững riêng, rồi đặt biến Vercel `API_ORIGIN` bằng URL gốc của dịch vụ đó (ví dụ `https://api.example.com`, không kèm `/api`). Vercel chuyển tiếp các request `/api/*` tới máy chủ này; không chạy kho vé trong function serverless vì dữ liệu trên đĩa và bộ nhớ function không bền vững.
 - Triển khai Firestore Rules: `firebase deploy --only firestore:rules`.
 - Bật đăng nhập Google trong Firebase Authentication.
 
