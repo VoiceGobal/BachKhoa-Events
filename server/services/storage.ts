@@ -1,13 +1,13 @@
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import {
+import type {
   MomoPrizeTier,
   TicketInternal,
   ClaimInternal,
   EventConfigState,
   AuditLogInternal,
-} from '../types';
+} from '../types.ts';
 
 // ==========================================
 // PERSISTENT DATABASE ENGINE

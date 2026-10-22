@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
+import type { Request, Response } from 'express';
 import {
   eventConfig,
   prizeTiers,
@@ -13,16 +14,16 @@ import {
   maskFullName,
   SLICES_DATA,
   runAtomicTransaction,
-} from '../services/storage';
+} from '../services/storage.ts';
 import {
   spinRateLimiter,
   ticketCheckRateLimiter,
   claimSubmitRateLimiter,
-} from '../middleware/rateLimiter';
+} from '../middleware/rateLimiter.ts';
 import {
   verifyFirebaseUser,
   requireVerifiedEmail,
-} from '../middleware/authMiddleware';
+} from '../middleware/authMiddleware.ts';
 
 const router = Router();
 

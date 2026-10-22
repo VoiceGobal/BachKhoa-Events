@@ -1,8 +1,9 @@
-import { Request, Response, NextFunction } from 'express';
+import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { AuthenticatedUser } from '../types';
+import type { AuthenticatedUser } from '../types.ts';
 
 let firebaseApiKey = '';
 try {

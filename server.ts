@@ -1,10 +1,11 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import dotenv from 'dotenv';
-import spinRouter, { getEventInfoHandler } from './server/routes/spinRoutes';
-import adminRouter from './server/routes/adminRoutes';
-import { geminiRouter } from './server/routes/geminiRoutes';
+import spinRouter, { getEventInfoHandler } from './server/routes/spinRoutes.ts';
+import adminRouter from './server/routes/adminRoutes.ts';
+import { geminiRouter } from './server/routes/geminiRoutes.ts';
 
 dotenv.config();
 
@@ -39,7 +40,7 @@ app.use('/api/gemini', geminiRouter);
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve('dist')));
-    app.get('*', (_req, res) => {
+    app.use((_req, res) => {
       res.sendFile(path.resolve('dist', 'index.html'));
     });
   } else {

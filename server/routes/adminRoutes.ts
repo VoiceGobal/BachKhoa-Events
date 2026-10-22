@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
+import type { Request, Response } from 'express';
 import {
   eventConfig,
   prizeTiers,
@@ -7,14 +8,14 @@ import {
   auditLogs,
   generateSecureTicketCode,
   saveDatabase,
-} from '../services/storage';
+} from '../services/storage.ts';
 import {
   requireAdmin,
   generateAdminSession,
   checkAdminPassword,
-} from '../middleware/authMiddleware';
-import { adminLoginLimiter } from '../middleware/rateLimiter';
-import { MomoPrizeTier } from '../types';
+} from '../middleware/authMiddleware.ts';
+import { adminLoginLimiter } from '../middleware/rateLimiter.ts';
+import type { MomoPrizeTier } from '../types.ts';
 
 const router = Router();
 

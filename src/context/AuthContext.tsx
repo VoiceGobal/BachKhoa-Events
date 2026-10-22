@@ -10,7 +10,7 @@ import {
   GoogleAuthProvider,
   updateProfile,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 export interface UserProfile {
@@ -35,6 +35,7 @@ interface AuthContextType {
   sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  decrementUserSpin: () => Promise<number>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -45,7 +46,7 @@ const ADMIN_EMAILS = [
   'cuongtt.ptit@gmail.com',
   'admin@bachkhoa.edu.vn',
   'bksamsong@bachkhoa.edu.vn',
-  ...(import.meta.env.VITE_FIREBASE_ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean),
+  ...(import.meta.env.VITE_FIREBASE_ADMIN_EMAILS || '').split(',').map((email: string) => email.trim().toLowerCase()).filter(Boolean),
 ];
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -172,6 +173,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const decrementUserSpin = async (): Promise<number> => {
+    if (!currentUser || !userProfile) return 0;
+    const newCount = Math.max(0, (userProfile.spinsRemaining ?? 3) - 1);
+    const updated: UserProfile = {
+      ...userProfile,
+      spinsRemaining: newCount,
+      totalSpins: (userProfile.totalSpins ?? 0) + 1,
+      lastSpinAt: new Date().toISOString(),
+    };
+    setUserProfile(updated);
+    try {
+      const userDocRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userDocRef, {
+        spinsRemaining: newCount,
+        totalSpins: updated.totalSpins,
+        lastSpinAt: updated.lastSpinAt,
+      });
+    } catch (err) {
+      console.warn('Could not update spin count in Firestore:', err);
+    }
+    return newCount;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -186,6 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendPasswordReset,
         signOut,
         refreshProfile,
+        decrementUserSpin,
       }}
     >
       {children}
