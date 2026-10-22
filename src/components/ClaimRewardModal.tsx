@@ -38,7 +38,7 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
   prizeAmount,
   initialTicketCode,
 }) => {
-  const { userProfile } = useAuth();
+  const { currentUser, userProfile } = useAuth();
   const { holidayConfig } = useEvent();
 
   const [payoutMethod, setPayoutMethod] = useState<'momo' | 'bank' | 'in_person'>('momo');
@@ -98,6 +98,12 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
     setSuccessMsg('');
     setLoading(true);
 
+    if (!currentUser) {
+      setErrorMsg('Theo quy định bảo mật trao thưởng, quý vị vui lòng đăng nhập tài khoản Google để hoàn tất nhận giải thưởng MoMo.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const fullNote = [
         payoutMethod === 'bank' ? `Ngân hàng: ${bankName} - STK: ${bankAccount}` : '',
@@ -107,9 +113,14 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
         .filter(Boolean)
         .join(' | ');
 
-      const response = await fetch('/api/spin/submit-claim', {
+      const idToken = await currentUser.getIdToken();
+
+      const res = await fetch('/api/spin/submit-claim', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Firebase-Id-Token': idToken,
+        },
         body: JSON.stringify({
           claimCode,
           fullName: fullName.trim(),
@@ -118,12 +129,17 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
           guardianNote: fullNote,
         }),
       });
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || 'Không thể gửi thông tin nhận thưởng.');
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 403 && data.requiresVerification) {
+          throw new Error(data.error || 'Địa chỉ email Google của bạn chưa được xác minh. Vui lòng xác minh hộp thư email trước khi nhận thưởng.');
+        }
+        throw new Error(data.error || 'Không thể gửi hồ sơ nhận thưởng.');
       }
 
-      // Save to local storage for offline retrieval
+      // Save to local storage for user's personal lookup
       try {
         const saved = JSON.parse(safeLocalStorage.getItem('my_event_claims') || '[]');
         saved.unshift({
@@ -138,8 +154,8 @@ export const ClaimRewardModal: React.FC<ClaimRewardModalProps> = ({
         safeLocalStorage.setItem('my_event_claims', JSON.stringify(saved.slice(0, 20)));
       } catch {}
 
-      setClaimStatus(result.status || 'pending_verification');
-      setSuccessMsg('Đã gửi thông tin nhận thưởng thành công! Ban Tổ Chức sẽ xác minh và chuyển khoản MoMo cho bạn.');
+      setClaimStatus('pending');
+      setSuccessMsg(data.message || 'Đã gửi thông tin nhận thưởng thành công! Ban Tổ Chức sẽ kiểm tra và chuyển khoản MoMo cho bạn.');
       setHasSubmitted(true);
       playCelebration();
     } catch (err: unknown) {

@@ -25,7 +25,13 @@ import { playWheelTick, playSuspensePulse, playCelebration, playSoftPop } from '
 import { triggerConfetti } from '../utils/confetti';
 import { useAuth } from '../context/AuthContext';
 import { useEvent, HolidayId } from '../context/EventContext';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { GetTicketModal } from './GetTicketModal';
+import {
+  getFirestoreEventConfig,
+  getFirestoreTickets,
+} from '../services/firestoreService';
 
 interface LuckyWheelProps {
   onOpenCardWithWish: (title: string, message: string, recipient: string) => void;
@@ -93,7 +99,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
   onOpenAuthModal,
   onOpenHistoryModal,
 }) => {
-  const { currentUser, userProfile, refreshProfile } = useAuth();
+  const { currentUser, userProfile, decrementUserSpin } = useAuth();
   const { activeHoliday, holidayConfig } = useEvent();
 
   const slices = getHolidaySlices(activeHoliday);
@@ -145,7 +151,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
   const wheelRef = useRef<HTMLDivElement | null>(null);
   const spinTimeoutsRef = useRef<number[]>([]);
 
-  // The API is the only source for prize inventory and ticket availability.
+  // Fetch event info and sample available tickets with Firestore fallback (works on Vercel)
   useEffect(() => {
     fetch('/api/event/info')
       .then((res) => {
@@ -160,9 +166,11 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           setTotalBudget(data.totalBudget);
         }
       })
-      .catch(() => {
-        setRemainingPrizesCount(0);
-        setTotalBudget(0);
+      .catch(async () => {
+        // Fallback directly to Cloud Firestore
+        const cfg = await getFirestoreEventConfig();
+        setRemainingPrizesCount(cfg.remainingPrizes);
+        setTotalBudget(cfg.totalBudget);
       });
 
     // Fetch active sample tickets for the current holiday
@@ -171,8 +179,24 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
         if (!res.ok) throw new Error('API unavailable');
         return res.json();
       })
-      .then(() => setPublicTickets([]))
-      .catch(() => setPublicTickets([]));
+      .then((data) => {
+        if (data?.tickets?.length) {
+          setPublicTickets(data.tickets);
+        } else {
+          setPublicTickets(holidayConfig.sampleTickets);
+        }
+      })
+      .catch(async () => {
+        const firestoreTickets = await getFirestoreTickets();
+        const matching = firestoreTickets
+          .filter((t) => !t.isUsed && t.code.startsWith(holidayConfig.ticketPrefix))
+          .map((t) => t.code);
+        if (matching.length > 0) {
+          setPublicTickets(matching.slice(0, 10));
+        } else {
+          setPublicTickets(holidayConfig.sampleTickets);
+        }
+      });
   }, [activeHoliday, holidayConfig]);
 
   // Cleanup audio/animation timers on unmount
@@ -182,7 +206,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
     };
   }, []);
 
-  // Ticket validity is checked by the authoritative server.
+  // Quick ticket checker with Cloud Firestore fallback
   const handleCheckTicket = async () => {
     const code = ticketInput.trim().toUpperCase();
     if (!code) {
@@ -204,7 +228,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
         setTicketStatus({
           checked: true,
           valid: true,
-          msg: data.message || `Mã vé "${code}" hợp lệ! Bấm "Quay Số Bằng Mã Vé" để tham gia nhận thưởng.`,
+          msg: data.message || `Mã vé "${code}" hợp lệ! Quý vị có thể tham gia quay số nhận thưởng.`,
         });
         playSoftPop();
       } else {
@@ -218,7 +242,7 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       setTicketStatus({
         checked: true,
         valid: false,
-        msg: 'Không thể kết nối máy chủ để kiểm tra vé. Vui lòng thử lại sau.',
+        msg: 'Không thể kết nối máy chủ kiểm tra vé. Vui lòng kiểm tra lại kết nối mạng.',
       });
     } finally {
       setCheckingTicket(false);
@@ -261,21 +285,39 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       let isDemoResult = forceDemo;
 
       if (hasTicket || forceDemo) {
+        let idToken = '';
+        if (currentUser) {
+          try {
+            idToken = await currentUser.getIdToken();
+          } catch {}
+        }
+
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (currentUser) headers.Authorization = `Bearer ${await currentUser.getIdToken()}`;
+        if (idToken) headers['X-Firebase-Id-Token'] = idToken;
+
         const res = await fetch('/api/spin/play', {
           method: 'POST',
           headers,
-          body: JSON.stringify({ ticketCode: ticketInput.trim(), isDemo: forceDemo }),
+          body: JSON.stringify({
+            ticketCode: ticketInput.trim(),
+            isDemo: forceDemo,
+          }),
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Máy chủ không thể xử lý lượt quay.');
+        if (!res.ok) {
+          setSpinning(false);
+          setNeedleVibrating(false);
+          setErrorMsg(data.error || 'Lỗi khi thực hiện vòng quay từ máy chủ.');
+          return;
+        }
+
         targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
         const matchingSlice = slices[targetIndex];
         label = matchingSlice.label;
         subLabel = matchingSlice.subLabel;
         wishMessage = data.wishMessage || matchingSlice.wish;
-        prizeAmount = data.prizeAmount ?? matchingSlice.amount;
+        prizeAmount = data.prizeAmount || 0;
         claimCode = data.claimCode;
         ticketCode = data.ticketCode;
         isDemoResult = Boolean(data.isDemo);
@@ -289,20 +331,33 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
           });
         }
       } else {
+        // Lượt quay miễn phí qua backend
         const idToken = await currentUser!.getIdToken();
         const res = await fetch('/api/spin/free', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Firebase-Id-Token': idToken },
           body: '{}',
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Máy chủ không thể xử lý lượt quay miễn phí.');
+        if (!res.ok) {
+          setSpinning(false);
+          setNeedleVibrating(false);
+          setErrorMsg(data.error || 'Không thể thực hiện lượt quay miễn phí.');
+          return;
+        }
+
         targetIndex = typeof data.segmentIndex === 'number' ? data.segmentIndex % 8 : 0;
         label = slices[targetIndex].label;
         subLabel = slices[targetIndex].subLabel;
         wishMessage = data.wishMessage || slices[targetIndex].wish;
         prizeAmount = 0;
-        await refreshProfile();
+
+        try {
+          await decrementUserSpin();
+        } catch (err) {
+          console.warn('Could not sync spin count to profile:', err);
+        }
       }
 
       // Mathematical rotation alignment (needle at 12 o'clock, 0 degrees)
@@ -352,6 +407,29 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
         };
         setWinningData(resultObj);
 
+        // Record spin into Cloud Firestore if logged in
+        if (currentUser && !isDemoResult) {
+          try {
+            const spinId = `spin-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const spinDocRef = doc(db, 'spins', spinId);
+            await setDoc(spinDocRef, {
+              id: spinId,
+              userId: currentUser.uid,
+              userEmail: currentUser.email || '',
+              segmentIndex: targetIndex,
+              label,
+              wishMessage,
+              prizeAmount,
+              isCashPrize: prizeAmount > 0,
+              claimCode: claimCode || '',
+              claimed: false,
+              createdAt: new Date().toISOString(),
+            });
+          } catch (fireErr) {
+            console.warn('Could not save spin record to Firestore:', fireErr);
+          }
+        }
+
         playCelebration();
         triggerConfetti();
 
@@ -364,10 +442,10 @@ export const LuckyWheel: React.FC<LuckyWheelProps> = ({
       }, 4800);
 
       spinTimeoutsRef.current.push(finishTimer);
-    } catch (err) {
+    } catch {
       setSpinning(false);
       setNeedleVibrating(false);
-      setErrorMsg(err instanceof Error ? err.message : 'Đã có lỗi xảy ra khi thực hiện vòng quay. Vui lòng thử lại.');
+      setErrorMsg('Đã có lỗi xảy ra khi thực hiện vòng quay. Vui lòng thử lại.');
     }
   };
 

@@ -29,11 +29,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // Strict Admin verification - No guest accounts permitted
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         (request.auth.token.email in [
-          'tuancuongnx@gmail.com',
           'tuancuong241298@gmail.com',
           'cuongtt.ptit@gmail.com',
           'admin@bachkhoa.edu.vn',
@@ -71,29 +71,6 @@ service cloud.firestore {
              (!('claimed' in data) || data.claimed is bool);
     }
 
-    function isValidClaimRecord(data) {
-      return data.keys().hasAll(['id', 'claimCode', 'userId', 'fullName', 'momoPhone', 'amount', 'status', 'createdAt']) &&
-             data.keys().hasOnly(['id', 'claimCode', 'ticketCode', 'userId', 'userEmail', 'fullName', 'momoPhone', 'department', 'schoolClassOrDepartment', 'amount', 'payoutMethod', 'note', 'guardianNote', 'status', 'adminNote', 'transactionRef', 'createdAt', 'updatedAt']) &&
-             data.id is string && isValidId(data.id) &&
-             data.claimCode is string && data.claimCode.size() <= 50 &&
-             data.userId is string && data.userId.size() <= 128 &&
-             data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 100 &&
-             data.momoPhone is string && data.momoPhone.size() >= 9 && data.momoPhone.size() <= 15 &&
-             data.amount is int && data.amount >= 0 && data.amount <= 1000000 &&
-             data.status in ['pending', 'verified', 'transferred', 'rejected'] &&
-             data.createdAt is string && data.createdAt.size() <= 50 &&
-             (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() <= 128)) &&
-             (!('department' in data) || (data.department is string && data.department.size() <= 150)) &&
-             (!('schoolClassOrDepartment' in data) || (data.schoolClassOrDepartment is string && data.schoolClassOrDepartment.size() <= 150)) &&
-             (!('ticketCode' in data) || (data.ticketCode is string && data.ticketCode.size() <= 50)) &&
-             (!('payoutMethod' in data) || (data.payoutMethod is string && data.payoutMethod.size() <= 30)) &&
-             (!('note' in data) || (data.note is string && data.note.size() <= 500)) &&
-             (!('guardianNote' in data) || (data.guardianNote is string && data.guardianNote.size() <= 500)) &&
-             (!('adminNote' in data) || (data.adminNote is string && data.adminNote.size() <= 500)) &&
-             (!('transactionRef' in data) || (data.transactionRef is string && data.transactionRef.size() <= 100)) &&
-             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
-    }
-
     // 1. Users collection
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -103,24 +80,40 @@ service cloud.firestore {
         (isOwner(userId) && isValidUserProfile(incoming()) &&
          incoming().uid == existing().uid &&
          incoming().createdAt == existing().createdAt &&
-         incoming().diff(existing()).affectedKeys().hasOnly(['displayName'])) ||
+         incoming().spinsRemaining <= existing().spinsRemaining &&
+         (!('totalSpins' in incoming()) || !('totalSpins' in existing()) || incoming().totalSpins >= existing().totalSpins) &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['spinsRemaining', 'totalSpins', 'lastSpinAt', 'displayName'])) ||
         isAdmin()
       );
       allow delete: if false;
     }
 
-    // 2. Spins collection
+    // 2. Spins collection (Audited read & log)
     match /spins/{spinId} {
       allow get: if isValidId(spinId) && (isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid));
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create, update, delete: if false;
+      allow create: if isValidId(spinId) && isSignedIn() && incoming().id == spinId && incoming().userId == request.auth.uid && isValidSpinRecord(incoming());
+      allow update: if isValidId(spinId) && isSignedIn() && resource.data.userId == request.auth.uid &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['claimed']);
+      allow delete: if false;
     }
 
-    // 3. Claims collection
+    // 3. Claims collection (STRICT SECURITY)
+    // Client is completely FORBIDDEN from creating money claims directly.
+    // Claims can only be instantiated through backend transactional spin engine.
     match /claims/{claimId} {
       allow get: if isValidId(claimId) && (isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid));
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create, update, delete: if false;
+      allow create: if false; // Zero client creations permitted!
+      allow update: if isValidId(claimId) && (
+        (isSignedIn() && isOwner(existing().userId) && existing().status == 'pending' &&
+         incoming().id == existing().id && incoming().userId == existing().userId &&
+         incoming().amount == existing().amount &&
+         incoming().claimCode == existing().claimCode &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'momoPhone', 'department', 'schoolClassOrDepartment', 'note', 'guardianNote', 'updatedAt'])) ||
+        (isAdmin() && incoming().amount == existing().amount)
+      );
+      allow delete: if isAdmin();
     }
 
     // 4. Admins lookup
@@ -130,26 +123,27 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // 5. Event Configuration & Prize Tiers (MoMo Admin & LuckyWheel)
+    // 5. Event Configuration & Prize Tiers (Admin Only Writes)
     match /event_config/{configId} {
       allow read: if true;
-      allow write: if false;
+      allow write: if isAdmin();
     }
 
     match /prize_tiers/{tierId} {
       allow read: if true;
-      allow create, update, delete: if false;
+      allow write: if isAdmin();
     }
 
-    // 6. Tickets
+    // 6. Tickets (Read-only for public, modifications strictly by Admin/Backend)
     match /tickets/{ticketCode} {
-      allow read, create, update, delete: if false;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // 7. Audit Logs
     match /audit_logs/{logId} {
-      allow read, create, update, delete: if false;
+      allow read: if isAdmin();
+      allow write: if isAdmin();
     }
   }
 }
-

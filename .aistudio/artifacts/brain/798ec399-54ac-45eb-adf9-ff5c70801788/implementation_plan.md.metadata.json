@@ -1,0 +1,6 @@
+{
+  "summary":  "Kế hoạch kiến trúc và lộ trình triển khai chi tiết:\n1. Đóng toàn bộ đường quay và tạo claim trực tiếp từ client, chuyển 100% sang backend transaction có khóa nguyên tử và kiểm tra tồn kho.\n2. Siết chặt Firestore Rules (default deny ghi trực tiếp vào claims/prize_tiers/tickets/event_config từ client, dọn sạch tài khoản khách khỏi admin).\n3. Chuẩn hóa kiến trúc Cloud Run Express + Cloud Firestore bền vững, sửa lỗi cấu hình rewrite Vercel.\n4. Bắt buộc email_verified khi nhận thưởng MoMo, ẩn thông tin PII (masking phone/name) và áp dụng rate limiting chống brute-force/spam.\n5. Tái cấu trúc mã nguồn toàn diện: chia nhỏ server.ts thành các module router/service/middleware riêng và tách LuckyWheel/AdminDashboard thành custom hooks + sub-components.\n6. Xây dựng bộ kịch bản kiểm thử bảo mật Rules và kiểm thử tải quay/claim đồng thời (concurrency testing).",
+  "updatedAt":  "2026-10-22T17:10:18.366739185Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
